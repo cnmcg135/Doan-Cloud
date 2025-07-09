@@ -23,12 +23,29 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Cấu hình Session
+const isProduction = process.env.NODE_ENV === 'production';
+
 app.use(session({
-    secret: 'minhcong13052004',
+    secret: 'minhcong13052004', // Giữ nguyên secret của bạn
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: true, maxAge: 60 * 60 * 1000 }
+    cookie: {
+        // secure: true CHỈ khi ở môi trường production (trên Azure với HTTPS)
+        // secure: false khi ở môi trường local (với HTTP)
+        secure: isProduction,
+
+        // Các thiết lập bảo mật khác được khuyến nghị:
+        httpOnly: true, // Ngăn JavaScript phía client truy cập vào cookie
+        sameSite: 'lax', // Giúp chống lại tấn công CSRF
+        maxAge: 60 * 60 * 1000 // 1 giờ
+    }
 }));
+
+// Quan trọng: Báo cho Express tin tưởng proxy của Azure
+// Điều này cần thiết để cookie 'secure' hoạt động đúng
+if (isProduction) {
+    app.set('trust proxy', 1); // Tin tưởng proxy đầu tiên
+}
 
 // Cấu hình Multer để lưu file upload
 const storage = multer.diskStorage({
