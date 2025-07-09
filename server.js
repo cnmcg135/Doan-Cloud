@@ -83,44 +83,42 @@ app.get('/api/properties', async (req, res) => {
     }
 });
 
-// THAY THẾ TOÀN BỘ API /contact CŨ BẰNG PHIÊN BẢN DEBUG NÀY
+// =================================================================
+// API /contact ĐÃ ĐƯỢC SỬA ĐỂ DÙNG POOL
+// =================================================================
 app.post('/contact', async (req, res) => {
     const { name, email, subject, message } = req.body;
-    console.log('Nhận được yêu cầu gửi liên hệ (DEBUG MODE):', req.body);
 
-    // Tạo một kết nối riêng cho request này
-    const connection = new sql.ConnectionPool(dbConfig);
+    console.log('Nhận được yêu cầu gửi liên hệ:', req.body);
+
+    if (!name || !email || !subject || !message) {
+        return res.status(400).json({ message: 'Vui lòng điền đầy đủ thông tin.' });
+    }
 
     try {
-        // Mở kết nối
-        await connection.connect();
-        console.log("DEBUG: Đã mở kết nối riêng cho /contact.");
-
+        // Kiểm tra xem pool kết nối chung có sẵn sàng không
+        if (!pool || !pool.connected) {
+            console.error('API /contact: CSDL chưa sẵn sàng.');
+            return res.status(503).json({ message: 'Dịch vụ tạm thời không khả dụng.' });
+        }
+        
         const query = 'INSERT INTO Contacts (Name, Email, Subject, Message) VALUES (@name, @email, @subject, @message)';
 
-        // Tạo và thực thi request
-        await connection.request()
+        // Sử dụng pool kết nối chung, không cần tạo connection mới
+        await pool.request()
             .input('name', sql.NVarChar, name)
             .input('email', sql.NVarChar, email)
             .input('subject', sql.NVarChar, subject)
             .input('message', sql.NVarChar, message)
             .query(query);
 
-        console.log("DEBUG: Thực thi INSERT thành công.");
-        
         // Trả về kết quả thành công
         res.status(200).json({ message: 'Tin nhắn đã được gửi thành công.' });
 
     } catch (err) {
-        // Nếu có lỗi
-        console.error('LỖI TRONG API /contact:', err);
+        // Xử lý lỗi nếu có
+        console.error('Lỗi khi lưu contact vào CSDL:', err);
         res.status(500).json({ message: 'Lỗi server, không thể lưu tin nhắn.' });
-    } finally {
-        // Rất quan trọng: Luôn luôn đóng kết nối sau khi xong
-        if (connection && connection.connected) {
-            console.log("DEBUG: Đóng kết nối riêng cho /contact.");
-            await connection.close();
-        }
     }
 });
 
