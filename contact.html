@@ -192,5 +192,52 @@ https://templatemo.com/tm-591-villa-agency
   <script src="assets/js/counter.js"></script>
   <script src="assets/js/custom.js"></script>
 
+  <script>
+    const contactForm = document.getElementById('contact-form');
+    const submitButton = document.getElementById('form-submit');
+
+    contactForm.addEventListener('submit', async function(event) {
+        // 1. Ngăn chặn hành vi mặc định của form (tải lại trang)
+        event.preventDefault();
+
+        const originalButtonText = submitButton.textContent;
+        submitButton.disabled = true;
+        submitButton.textContent = 'Sending...';
+
+        // 2. Tạo một đối tượng FormData để thu thập dữ liệu
+        const formData = new FormData(contactForm);
+        // Chuyển FormData thành một đối tượng JSON đơn giản
+        const formObject = Object.fromEntries(formData.entries());
+
+        try {
+            // 3. Gửi dữ liệu đến API backend bằng Fetch
+            const response = await fetch('/contact', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json' // Báo cho server biết chúng ta gửi JSON
+                },
+                body: JSON.stringify(formObject) // Chuyển object thành chuỗi JSON
+            });
+
+            // 4. Xử lý kết quả trả về từ server
+            if (response.ok) {
+                // Nếu server trả về mã thành công (2xx)
+                alert('Thank you! Your message has been sent successfully.');
+                contactForm.reset(); // Xóa trắng các ô input trong form
+            } else {
+                // Nếu server trả về lỗi (4xx, 5xx)
+                alert('An error occurred. Please try again later.');
+            }
+        } catch (error) {
+            // Nếu có lỗi mạng (mất kết nối)
+            console.error('Error submitting form:', error);
+            alert('Could not send message. Please check your internet connection.');
+        } finally {
+            // 5. Luôn trả lại trạng thái ban đầu cho nút bấm
+            submitButton.disabled = false;
+            submitButton.textContent = originalButtonText;
+        }
+    });
+  </script>
   </body>
 </html>

@@ -1,0 +1,72 @@
+<!-- File: admin/dashboard.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Dashboard</title>
+    <!-- Thêm CSS vào đây cho đẹp nếu muốn -->
+</head>
+<body>
+    <h1>Quản lý sản phẩm</h1>
+    <a href="/admin/form.html" style="margin-bottom: 20px; display: inline-block;">Thêm Sản phẩm mới</a>
+    <a href="/api/logout">Đăng xuất</a>
+    
+    <table border="1" style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th>Tên</th>
+                <th>Giá</th>
+                <th>Hành động</th>
+            </tr>
+        </thead>
+        <tbody id="properties-table">
+            <!-- Dữ liệu sẽ được chèn vào đây bằng JS -->
+        </tbody>
+    </table>
+
+    <script>
+        async function loadProperties() {
+            try {
+                const response = await fetch('/api/properties');
+                const properties = await response.json();
+                const tableBody = document.getElementById('properties-table');
+                tableBody.innerHTML = ''; 
+
+                properties.forEach(prop => {
+                    const row = `
+                        <tr>
+                            <td>${prop.Name}</td>
+                            <td>${prop.Price.toLocaleString()}</td>
+                            <td>
+                                <a href="/admin/form.html?id=${prop.PropertyID}">Sửa</a>
+                                <button onclick="deleteProperty(${prop.PropertyID})">Xóa</button>
+                            </td>
+                        </tr>
+                    `;
+                    tableBody.innerHTML += row;
+                });
+            } catch (error) {
+                console.error("Lỗi tải danh sách sản phẩm:", error);
+            }
+        }
+
+        async function deleteProperty(id) {
+            if (confirm('Bạn có chắc chắn muốn xóa sản phẩm này?')) {
+                try {
+                    const response = await fetch(`/api/properties/${id}`, { method: 'DELETE' });
+                    if (response.ok) {
+                        alert('Xóa thành công!');
+                        loadProperties(); 
+                    } else {
+                        alert('Xóa thất bại!');
+                    }
+                } catch (error) {
+                    console.error("Lỗi khi xóa:", error);
+                }
+            }
+        }
+        
+        window.onload = loadProperties;
+    </script>
+</body>
+</html>

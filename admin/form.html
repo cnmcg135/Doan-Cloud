@@ -1,0 +1,134 @@
+<!-- File: admin/form.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Quản lý Sản phẩm</title>
+    <!-- Thêm CSS vào đây để trang đẹp hơn -->
+</head>
+<body>
+    <h1 id="form-title">Thêm Sản phẩm mới</h1>
+    <form id="property-form" enctype="multipart/form-data">
+        <p><input type="text" id="Category" placeholder="Loại (Luxury Villa, Apartment...)" required></p>
+        <p><input type="text" id="Name" placeholder="Tên / Địa chỉ" required></p>
+        <p><input type="number" id="Price" placeholder="Giá" required step="0.01"></p>
+        <p><input type="number" id="Bedrooms" placeholder="Số phòng ngủ"></p>
+        <p><input type="number" id="Bathrooms" placeholder="Số phòng tắm"></p>
+        <p><input type="number" id="Area" placeholder="Diện tích (m2)" step="0.01"></p>
+        <p><input type="number" id="Floor" placeholder="Số tầng"></p>
+        <p><input type="number" id="Parking" placeholder="Chỗ đậu xe"></p>
+        
+        <p>
+            <label for="imageFile">Chọn ảnh sản phẩm:</label>
+            <input type="file" id="imageFile" name="imageFile">
+        </p>
+        
+        <!-- Hiển thị ảnh hiện tại khi sửa -->
+        <div id="current-image-container" style="display:none;">
+            <p>Ảnh hiện tại:</p>
+            <img id="current-image" src="" alt="Ảnh hiện tại" style="max-width: 200px; max-height: 200px;">
+        </div>
+
+        <!-- Input ẩn để lưu đường dẫn ảnh cũ khi Sửa -->
+        <input type="hidden" id="existingImageURL" name="existingImageURL">
+        
+        <button type="submit">Lưu sản phẩm</button>
+    </form>
+    <a href="/admin/dashboard.html">Quay lại danh sách</a>
+
+    <script>
+        const form = document.getElementById('property-form');
+        const formTitle = document.getElementById('form-title');
+        const urlParams = new URLSearchParams(window.location.search);
+        const propertyId = urlParams.get('id');
+
+        // Hàm điền dữ liệu vào form khi ở chế độ Sửa
+        async function populateFormForEdit() {
+            try {
+                // SỬA LỖI: Thêm cache: 'no-cache' để tránh lỗi 304
+                const response = await fetch(`/api/properties/${propertyId}`, { cache: 'no-cache' });
+
+                if (!response.ok) {
+                    throw new Error(`Lỗi HTTP! Status: ${response.status}`);
+                }
+                
+                const prop = await response.json();
+                
+                // Điền dữ liệu vào các ô input
+                document.getElementById('Category').value = prop.Category;
+                document.getElementById('Name').value = prop.Name;
+                document.getElementById('Price').value = prop.Price;
+                document.getElementById('Bedrooms').value = prop.Bedrooms;
+                document.getElementById('Bathrooms').value = prop.Bathrooms;
+                document.getElementById('Area').value = prop.Area;
+                document.getElementById('Floor').value = prop.Floor;
+                document.getElementById('Parking').value = prop.Parking;
+                
+                // SỬA LỖI: Điền đường dẫn ảnh cũ vào input ẩn và hiển thị ảnh
+                if (prop.ImageURL) {
+                    document.getElementById('existingImageURL').value = prop.ImageURL;
+                    document.getElementById('current-image').src = prop.ImageURL;
+                    document.getElementById('current-image-container').style.display = 'block';
+                }
+
+            } catch (error) {
+                console.error("Lỗi tải dữ liệu để sửa:", error);
+                alert("Không thể tải dữ liệu. Quay về trang danh sách.");
+                window.location.href = '/admin/dashboard.html';
+            }
+        }
+
+        // Kiểm tra xem có phải là trang Sửa không
+        if (propertyId) {
+            formTitle.textContent = `Chỉnh sửa sản phẩm ID: ${propertyId}`;
+            populateFormForEdit();
+        }
+
+        // Hàm xử lý khi submit form
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // Tạo một đối tượng FormData để gửi cả file và text
+            const formData = new FormData();
+            formData.append('Category', document.getElementById('Category').value);
+            formData.append('Name', document.getElementById('Name').value);
+            formData.append('Price', document.getElementById('Price').value);
+            formData.append('Bedrooms', document.getElementById('Bedrooms').value);
+            formData.append('Bathrooms', document.getElementById('Bathrooms').value);
+            formData.append('Area', document.getElementById('Area').value);
+            formData.append('Floor', document.getElementById('Floor').value);
+            formData.append('Parking', document.getElementById('Parking').value);
+
+            // SỬA LỖI: Gửi đường dẫn ảnh cũ lên cho API Sửa
+            formData.append('existingImageURL', document.getElementById('existingImageURL').value);
+            
+            // Lấy file từ input
+            const imageInput = document.getElementById('imageFile');
+            if (imageInput.files.length > 0) {
+                formData.append('imageFile', imageInput.files[0]);
+            }
+
+            const method = propertyId ? 'PUT' : 'POST';
+            const endpoint = propertyId ? `/api/properties/${propertyId}` : '/api/properties';
+            
+            try {
+                // Khi gửi FormData, không cần set header 'Content-Type'
+                const response = await fetch(endpoint, {
+                    method: method,
+                    body: formData
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    alert('Thao tác thành công!');
+                    window.location.href = '/admin/dashboard.html';
+                } else {
+                    alert('Thao tác thất bại: ' + (result.message || 'Lỗi không xác định'));
+                }
+            } catch (error) {
+                console.error("Lỗi khi gửi form:", error);
+                alert("Đã có lỗi xảy ra. Vui lòng kiểm tra Console (F12).");
+            }
+        });
+    </script>
+</body>
+</html>
