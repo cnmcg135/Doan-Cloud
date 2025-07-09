@@ -45,22 +45,21 @@ const upload = multer({ storage: storage });
 // =================================================================
 //                      KẾT NỐI CƠ SỞ DỮ LIỆU
 // =================================================================
-const dbConfig = {
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    server: process.env.DB_SERVER,
-    database: process.env.DB_DATABASE,
-    options: {
-        encrypt: true,
-        trustServerCertificate: false
-    }
-};
+// Lấy chuỗi kết nối từ biến môi trường mà App Service đã tiêm vào từ Key Vault
+const connectionString = process.env.DATABASE_CONNECTION_STRING;
 
 let pool;
 async function connectToDatabase() {
+    // Kiểm tra xem biến môi trường có tồn tại không
+    if (!connectionString) {
+        console.error("LỖI CẤU HÌNH: Biến môi trường DATABASE_CONNECTION_STRING chưa được thiết lập trên App Service.");
+        process.exit(1); // Thoát ứng dụng nếu không có chuỗi kết nối
+    }
+
     try {
-        pool = await new sql.ConnectionPool(dbConfig).connect();
-        console.log("Kết nối CSDL thành công!");
+        // Sử dụng trực tiếp chuỗi kết nối này để tạo pool
+        pool = await new sql.ConnectionPool(connectionString).connect();
+        console.log("Kết nối CSDL bằng chuỗi kết nối từ Key Vault thành công!");
     } catch (err) {
         console.error("LỖI KẾT NỐI CSDL:", err);
         process.exit(1);
