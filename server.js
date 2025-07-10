@@ -271,6 +271,18 @@ app.delete('/api/properties/:id', requireAdmin, async (req, res) => {
     }
 });
 
+// ====================================================================
+//                ROUTE ĐẶC BIỆT CHO LET'S ENCRYPT
+// ====================================================================
+// Mỗi lần retry, bạn cần vào đây và cập nhật lại TÊN FILE và NỘI DUNG
+const acmeChallengeFile = 'PCLHtQcSuK9lVz9RUQyO1l8IlON14ceXyEvVwgxXBkU';
+const acmeChallengeContent = 'PCLHtQcSuK9lVz9RUQyO1l8IlON14ceXyEvVwgxXBkU.oPx2MRDy2BlWhrx4dCFxJXuU_iSxlMBt3kfFpijH3TU';
+
+app.get(`/.well-known/acme-challenge/${acmeChallengeFile}`, (req, res) => {
+    res.type('text/plain');
+    res.send(acmeChallengeContent);
+});
+// ====================================================================
 
 // =================================================================
 //                      PHỤC VỤ FILE TĨNH VÀ HTML (ĐẶT Ở CUỐI CÙNG)
