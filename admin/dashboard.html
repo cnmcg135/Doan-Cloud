@@ -1,72 +1,359 @@
-<!-- File: admin/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Admin Dashboard</title>
-    <!-- Thêm CSS vào đây cho đẹp nếu muốn -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Real Estate Management</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: #333;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+
+        .content {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border: 1px solid #f5c6cb;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border: 1px solid #c3e6cb;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+
+        .actions {
+            display: flex;
+            gap: 5px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
 <body>
-    <h1>Quản lý sản phẩm</h1>
-    <a href="/admin/form.html" style="margin-bottom: 20px; display: inline-block;">Thêm Sản phẩm mới</a>
-    <a href="/api/logout">Đăng xuất</a>
-    
-    <table border="1" style="width: 100%; border-collapse: collapse;">
-        <thead>
-            <tr>
-                <th>Tên</th>
-                <th>Giá</th>
-                <th>Hành động</th>
-            </tr>
-        </thead>
-        <tbody id="properties-table">
-            <!-- Dữ liệu sẽ được chèn vào đây bằng JS -->
-        </tbody>
-    </table>
+    <div class="header">
+        <h1>Quản lý Bất động sản</h1>
+        <div class="header-actions">
+            <a href="/admin/form.html" class="btn btn-primary">Thêm sản phẩm mới</a>
+            <a href="/api/logout" class="btn btn-secondary">Đăng xuất</a>
+        </div>
+    </div>
+
+    <div class="content">
+        <div id="messageContainer"></div>
+        
+        <div id="loadingContainer" class="loading" style="display: none;">
+            <div class="spinner"></div>
+            <p>Đang tải danh sách sản phẩm...</p>
+        </div>
+
+        <div id="tableContainer" style="display: none;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Loại</th>
+                        <th>Tên</th>
+                        <th>Giá</th>
+                        <th>Phòng ngủ</th>
+                        <th>Diện tích (m²)</th>
+                        <th>Hành động</th>
+                    </tr>
+                </thead>
+                <tbody id="properties-table">
+                    <!-- Dữ liệu sẽ được chèn vào đây bằng JS -->
+                </tbody>
+            </table>
+        </div>
+
+        <div id="emptyContainer" class="empty-state" style="display: none;">
+            <p>Chưa có sản phẩm nào. <a href="/admin/form.html">Thêm sản phẩm đầu tiên</a></p>
+        </div>
+    </div>
 
     <script>
+        // Message display function
+        function showMessage(message, type = 'info') {
+            const messageContainer = document.getElementById('messageContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = type;
+            messageDiv.textContent = message;
+            
+            // Clear previous messages
+            messageContainer.innerHTML = '';
+            messageContainer.appendChild(messageDiv);
+            
+            // Auto hide success/info messages after 5 seconds
+            if (type === 'success') {
+                setTimeout(() => {
+                    if (messageDiv.parentNode) {
+                        messageDiv.remove();
+                    }
+                }, 5000);
+            }
+        }
+
+        // Show/hide containers
+        function showContainer(containerId) {
+            ['loadingContainer', 'tableContainer', 'emptyContainer'].forEach(id => {
+                document.getElementById(id).style.display = id === containerId ? 'block' : 'none';
+            });
+        }
+
+        // Check authentication status
+        async function checkAuthStatus() {
+            try {
+                const response = await fetch('/api/auth/status', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin'
+                });
+                
+                const data = await response.json();
+                
+                if (!data.authenticated) {
+                    window.location.href = '/admin/login.html';
+                    return false;
+                }
+                return true;
+            } catch (error) {
+                console.error('Error checking auth status:', error);
+                window.location.href = '/admin/login.html';
+                return false;
+            }
+        }
+
+        // Load properties from API
         async function loadProperties() {
             try {
-                const response = await fetch('/api/properties');
+                showContainer('loadingContainer');
+                
+                const response = await fetch('/api/properties', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin'
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        window.location.href = '/admin/login.html';
+                        return;
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const properties = await response.json();
                 const tableBody = document.getElementById('properties-table');
                 tableBody.innerHTML = ''; 
 
+                if (properties.length === 0) {
+                    showContainer('emptyContainer');
+                    return;
+                }
+
                 properties.forEach(prop => {
-                    const row = `
-                        <tr>
-                            <td>${prop.Name}</td>
-                            <td>${prop.Price.toLocaleString()}</td>
-                            <td>
-                                <a href="/admin/form.html?id=${prop.PropertyID}">Sửa</a>
-                                <button onclick="deleteProperty(${prop.PropertyID})">Xóa</button>
-                            </td>
-                        </tr>
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${prop.PropertyID}</td>
+                        <td>${prop.Category || 'N/A'}</td>
+                        <td>${prop.Name || 'N/A'}</td>
+                        <td>${(prop.Price || 0).toLocaleString('vi-VN')} VNĐ</td>
+                        <td>${prop.Bedrooms || 0}</td>
+                        <td>${prop.Area || 0}</td>
+                        <td class="actions">
+                            <a href="/admin/form.html?id=${prop.PropertyID}" class="btn btn-primary" style="font-size: 12px; padding: 5px 10px;">Sửa</a>
+                            <button onclick="deleteProperty(${prop.PropertyID})" class="btn btn-danger" style="font-size: 12px; padding: 5px 10px;">Xóa</button>
+                        </td>
                     `;
-                    tableBody.innerHTML += row;
+                    tableBody.appendChild(row);
                 });
+                
+                showContainer('tableContainer');
+                
             } catch (error) {
                 console.error("Lỗi tải danh sách sản phẩm:", error);
+                showMessage(`Lỗi tải danh sách sản phẩm: ${error.message}`, 'error');
+                showContainer('emptyContainer');
             }
         }
 
+        // Delete property with confirmation
         async function deleteProperty(id) {
-            if (confirm('Bạn có chắc chắn muốn xóa sản phẩm này?')) {
-                try {
-                    const response = await fetch(`/api/properties/${id}`, { method: 'DELETE' });
-                    if (response.ok) {
-                        alert('Xóa thành công!');
-                        loadProperties(); 
-                    } else {
-                        alert('Xóa thất bại!');
+            if (!confirm('Bạn có chắc chắn muốn xóa sản phẩm này?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/properties/${id}`, { 
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin'
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        window.location.href = '/admin/login.html';
+                        return;
                     }
-                } catch (error) {
-                    console.error("Lỗi khi xóa:", error);
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('Xóa sản phẩm thành công!', 'success');
+                    loadProperties(); // Reload the list
+                } else {
+                    showMessage(`Xóa thất bại: ${result.message}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error("Lỗi khi xóa:", error);
+                showMessage(`Lỗi khi xóa: ${error.message}`, 'error');
             }
         }
         
-        window.onload = loadProperties;
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('Dashboard loading...');
+            
+            // Check authentication first
+            const isAuthenticated = await checkAuthStatus();
+            if (isAuthenticated) {
+                loadProperties();
+            }
+        });
     </script>
 </body>
 </html>
