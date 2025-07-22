@@ -22,9 +22,6 @@ const port = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Cấu hình Session
-const isProduction = process.env.NODE_ENV === 'production';
-
 app.use(session({
     secret: 'minhcong13052004', // Giữ nguyên secret của bạn
     resave: false,
@@ -40,6 +37,8 @@ app.use(session({
         maxAge: 60 * 60 * 1000 // 1 giờ
     }
 }));
+// Cấu hình Session
+const isProduction = process.env.NODE_ENV === 'production';
 
 // Quan trọng: Báo cho Express tin tưởng proxy của Azure
 // Điều này cần thiết để cookie 'secure' hoạt động đúng
