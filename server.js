@@ -165,19 +165,14 @@ app.get('/api/auth/status', (req, res) => {
     // Chúng ta chỉ cần kiểm tra xem có thông tin người dùng đã được lưu trong session hay không.
     // (Bạn đã lưu thông tin này trong route /api/login)
     
-    if (req.session && req.session.userId) {
+    if (req.session && req.session.user) {
         // Nếu có userId trong session, có nghĩa là người dùng đã đăng nhập.
         res.status(200).json({
             authenticated: true,
-            user: {
-                id: req.session.userId,
-                username: req.session.username
-                // Bạn có thể gửi thêm thông tin người dùng khác nếu cần
-            }
+            user: req.session.user // Gửi lại thông tin user cho frontend nếu cần
         });
     } else {
-        // Nếu không, có nghĩa là họ chưa đăng nhập.
-        // Trả về status 200 vì đây không phải là lỗi, chỉ là thông báo trạng thái.
+        // Nếu không, trả về chưa đăng nhập
         res.status(200).json({ authenticated: false });
     }
 });
