@@ -18,11 +18,13 @@ const { requireAdmin } = require('./middleware.js');
 // =================================================================
 const app = express();
 const port = process.env.PORT || 3000;
-const isProduction = process.env.NODE_ENV === 'production';
+
 // Middleware để đọc dữ liệu JSON và form
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Cấu hình Session
+const isProduction = process.env.NODE_ENV === 'production';
 app.use(session({
     secret: 'minhcong13052004', // Giữ nguyên secret của bạn
     resave: false,
@@ -48,9 +50,6 @@ const dbURI = process.env.MONGODB_URI;
 mongoose.connect(dbURI, { useNewUrlParser: true, useUnifiedTopology: true })
     .then(() => console.log('MongoDB connected successfully.'))
     .catch(err => console.error('MongoDB connection error:', err));
-// Cấu hình Session
-
-
 // Quan trọng: Báo cho Express tin tưởng proxy của Azure
 // Điều này cần thiết để cookie 'secure' hoạt động đúng
 if (isProduction) {
