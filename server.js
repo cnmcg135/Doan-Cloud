@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const session = require('express-session');
-const MSSQLStore = require('connect-mssql-v2');
+const MSSQLStore = require('connect-mssql-v2')(session);
 const { DefaultAzureCredential } = require('@azure/identity');
 const { SecretClient } = require('@azure/keyvault-secrets');
 
