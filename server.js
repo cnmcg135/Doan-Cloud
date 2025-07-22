@@ -7,6 +7,7 @@ const path = require('path');
 const session = require('express-session');
 const multer = require('multer'); // Thư viện xử lý file upload
 const MongoStore = require('connect-mongo'); // Thêm connect-mongo
+const mongoose = require('mongoose');
 require('dotenv').config();
 
 // Import middleware từ file riêng
@@ -28,7 +29,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 app.use(session({
     secret: 'minhcong13052004', // Giữ nguyên secret của bạn
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,
     store: MongoStore.create({
         mongoUrl: process.env.MONGODB_URI,
         collectionName: 'sessions',
