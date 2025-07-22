@@ -2,11 +2,62 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const session = require('express-session');
+const MSSQLStore = require('connect-mssql-v2')(session);
+const { DefaultAzureCredential } = require('@azure/identity');
+const { SecretClient } = require('@azure/keyvault-secrets');
 
 const app = express();
 const port = process.env.PORT || 8080;
 
-// Simple middleware
+// Azure and environment detection
+const isAzure = process.env.WEBSITE_SITE_NAME || process.env.APPSETTING_WEBSITE_SITE_NAME;
+const isDevelopment = !isAzure;
+
+console.log(`🌐 Environment: ${isAzure ? 'Azure App Service' : 'Local Development'}`);
+
+// Trust proxy for Azure App Service
+if (isAzure) {
+    app.set('trust proxy', 1);
+}
+
+// Session configuration
+let sessionConfig = {
+    secret: process.env.SESSION_SECRET || 'villa-agency-super-secret-key-change-in-production',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: isAzure, // Use secure cookies on Azure (HTTPS)
+        httpOnly: true,
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+};
+
+// Configure session store for Azure
+if (isAzure && process.env.DATABASE_CONNECTION_STRING) {
+    console.log('🔧 Configuring Azure SQL session store...');
+    try {
+        sessionConfig.store = new MSSQLStore({
+            connectionString: process.env.DATABASE_CONNECTION_STRING,
+            table: 'Sessions',
+            autoRemove: 'interval',
+            autoRemoveInterval: 1000 * 60 * 30, // 30 minutes
+            autoRemoveCallback: function() {
+                console.log('🧹 Expired sessions cleaned up');
+            },
+            createTable: true // Auto-create table if it doesn't exist
+        });
+        console.log('✅ Azure SQL session store configured');
+    } catch (error) {
+        console.warn('⚠️ Failed to configure SQL session store, falling back to memory store:', error.message);
+    }
+} else if (isAzure) {
+    console.warn('⚠️ DATABASE_CONNECTION_STRING not found, using memory store (not recommended for production)');
+}
+
+app.use(session(sessionConfig));
+
+// Basic middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -51,12 +102,31 @@ const upload = multer({
     }
 });
 
-console.log('🚀 Villa Agency - Super Simple Auth');
+console.log('🚀 Villa Agency - Session-Based Authentication');
 
 // =================================================================
-//                      SIMPLE AUTH STORAGE
+//                      SESSION-BASED AUTHENTICATION
 // =================================================================
-let loggedInUsers = new Set(); // Just store logged in IPs
+
+function isLoggedIn(req) {
+    return req.session && req.session.user && req.session.user.role === 'admin';
+}
+
+function loginUser(req, userData = { username: 'admin', role: 'admin' }) {
+    req.session.user = userData;
+    console.log(`✅ User logged in: ${userData.username} (Session: ${req.sessionID})`);
+}
+
+function logoutUser(req) {
+    if (req.session.user) {
+        console.log(`❌ User logged out: ${req.session.user.username} (Session: ${req.sessionID})`);
+    }
+    req.session.destroy((err) => {
+        if (err) {
+            console.error('Error destroying session:', err);
+        }
+    });
+}
 
 // =================================================================
 //                      IN-MEMORY PROPERTY STORAGE
@@ -93,37 +163,59 @@ properties.push(
 );
 
 function isLoggedIn(req) {
-    const userKey = req.ip + '-' + req.get('User-Agent');
-    return loggedInUsers.has(userKey);
+    return req.session && req.session.user && req.session.user.role === 'admin';
 }
 
-function loginUser(req) {
-    const userKey = req.ip + '-' + req.get('User-Agent');
-    loggedInUsers.add(userKey);
-    console.log(`✅ User logged in: ${req.ip}`);
+function loginUser(req, userData = { username: 'admin', role: 'admin' }) {
+    req.session.user = userData;
+    console.log(`✅ User logged in: ${userData.username} (Session: ${req.sessionID})`);
 }
 
 function logoutUser(req) {
-    const userKey = req.ip + '-' + req.get('User-Agent');
-    loggedInUsers.delete(userKey);
-    console.log(`❌ User logged out: ${req.ip}`);
+    if (req.session.user) {
+        console.log(`❌ User logged out: ${req.session.user.username} (Session: ${req.sessionID})`);
+    }
+    req.session.destroy((err) => {
+        if (err) {
+            console.error('Error destroying session:', err);
+        }
+    });
 }
 
 // =================================================================
-//                      SIMPLE PROTECTION MIDDLEWARE
+//                      AUTHENTICATION MIDDLEWARE
 // =================================================================
 function requireLogin(req, res, next) {
     if (isLoggedIn(req)) {
         next();
     } else {
-        console.log(`🔒 Access denied for ${req.ip} to ${req.path}`);
+        console.log(`🔒 Access denied for ${req.ip} to ${req.path} (Session: ${req.sessionID || 'none'})`);
         if (req.path.startsWith('/api/')) {
-            res.status(401).json({ message: 'Please login first' });
+            res.status(401).json({ 
+                message: 'Please login first',
+                redirectTo: '/admin/login.html'
+            });
         } else {
             res.redirect('/admin/login.html');
         }
     }
 }
+
+// =================================================================
+//                      STATIC FILES (PUBLIC)
+// =================================================================
+
+// Public static files BEFORE authentication
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
+app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
+
+// Public admin login assets (CSS, JS, images for login page)
+app.use('/admin/css', express.static(path.join(__dirname, 'admin/css')));
+app.use('/admin/js', express.static(path.join(__dirname, 'admin/js')));
+app.use('/admin/assets', express.static(path.join(__dirname, 'admin/assets')));
+app.use('/admin/img', express.static(path.join(__dirname, 'admin/img')));
+app.use('/admin/fonts', express.static(path.join(__dirname, 'admin/fonts')));
 
 // =================================================================
 //                      ROUTES
@@ -189,9 +281,9 @@ app.post('/api/login', (req, res) => {
     
     // SUPER SIMPLE CHECK - just hardcoded admin
     if (username === 'admin' && password === 'admin123') {
-        loginUser(req);
+        loginUser(req, { username: 'admin', role: 'admin' });
         
-        console.log(`✅ Login successful for ${req.ip}`);
+        console.log(`✅ Login successful for ${req.ip} (Session: ${req.sessionID})`);
         
         // Check if it's form submission (redirect) or API call (JSON)
         if (req.get('Content-Type')?.includes('application/x-www-form-urlencoded')) {
@@ -206,7 +298,7 @@ app.post('/api/login', (req, res) => {
             });
         }
     } else {
-        console.log(`❌ Login failed for ${req.ip}`);
+        console.log(`❌ Login failed for ${req.ip} (Session: ${req.sessionID || 'none'})`);
         
         if (req.get('Content-Type')?.includes('application/x-www-form-urlencoded')) {
             res.send(`
@@ -243,7 +335,8 @@ app.get('/api/logout', (req, res) => {
 app.get('/api/auth/status', (req, res) => {
     res.json({
         authenticated: isLoggedIn(req),
-        user: isLoggedIn(req) ? { username: 'admin' } : null
+        user: isLoggedIn(req) ? { username: req.session.user.username, role: req.session.user.role } : null,
+        sessionId: req.sessionID
     });
 });
 
@@ -431,9 +524,10 @@ app.get('/health', (req, res) => {
         status: 'ok',
         timestamp: new Date().toISOString(),
         authenticated: isLoggedIn(req),
-        activeUsers: loggedInUsers.size,
-        version: 'super-simple',
-        message: 'Simple auth working!'
+        environment: isAzure ? 'Azure App Service' : 'Local Development',
+        sessionId: req.sessionID,
+        version: 'session-based-auth',
+        message: 'Session-based auth working!'
     });
 });
 
@@ -447,19 +541,17 @@ app.get('/login', (req, res) => {
 });
 
 // =================================================================
-//                      STATIC FILES
+//                      PROTECTED STATIC FILES
 // =================================================================
 
-// Public static files
-app.use('/assets', express.static(path.join(__dirname, 'assets')));
-app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
-app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
-
-// Protected admin files
+// Protected admin files (require authentication)
 app.use('/admin', requireLogin, express.static(path.join(__dirname, 'admin')));
 
-// Root static files (public)
-app.use(express.static(path.join(__dirname, ''), { index: false }));
+// Root static files (public) - excluding admin directory
+app.use(express.static(path.join(__dirname, ''), { 
+    index: false,
+    ignore: ['admin/**']
+}));
 
 // =================================================================
 //                      ERROR HANDLING
@@ -472,27 +564,21 @@ app.use((req, res) => {
     `);
 });
 
-// =================================================================
-//                      START SERVER
-// =================================================================
 const server = app.listen(port, () => {
     console.log('=================================================================');
-    console.log(`🚀 Villa Agency Server (SUPER SIMPLE) running on port ${port}`);
+    console.log(`🚀 Villa Agency Server (SESSION-BASED AUTH) running on port ${port}`);
     console.log(`📅 Started: ${new Date().toISOString()}`);
-    console.log(`🔐 Authentication: IP + User-Agent based (ultra simple!)`);
+    console.log(`🌐 Environment: ${isAzure ? 'Azure App Service' : 'Local Development'}`);
+    console.log(`🔐 Authentication: Express session-based`);
     console.log(`📋 Login: admin / admin123`);
     console.log(`🌐 Test: http://localhost:${port}/admin/login.html`);
+    if (isAzure) {
+        console.log(`🔧 Trust proxy: enabled for Azure App Service`);
+        console.log(`🍪 Secure cookies: enabled for HTTPS`);
+        console.log(`💾 Session store: ${sessionConfig.store ? 'Azure SQL' : 'Memory (fallback)'}`);
+    }
     console.log('=================================================================');
 });
-
-// Clean up every hour to prevent memory leak
-setInterval(() => {
-    console.log(`🧹 Cleaning up logged in users. Count: ${loggedInUsers.size}`);
-    if (loggedInUsers.size > 100) {
-        loggedInUsers.clear();
-        console.log(`🧹 Cleared all logged in users`);
-    }
-}, 60 * 60 * 1000); // 1 hour
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
