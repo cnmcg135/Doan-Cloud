@@ -283,13 +283,17 @@ app.use('/uploads', express.static(path.join(__dirname, 'public/uploads'))); // 
 app.get('/admin/login.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'admin/login.html'));
 });
-
+// Bảo vệ TẤT CẢ các route khác trong /admin bằng middleware requireAdmin
+app.use('/admin', requireAdmin);
 // Bảo vệ tất cả các file trong thư mục /admin
-app.use('/admin', requireAdmin, express.static(path.join(__dirname, 'admin')));
+app.use('/admin', express.static(path.join(__dirname, 'admin')));
 
 // Phục vụ các file ở thư mục gốc (index.html, contact.html,...)
 app.use(express.static(path.join(__dirname, '')));
-
+// Redirect từ gốc đến trang chính nếu cần
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 // =================================================================
 //                      KHỞI ĐỘNG SERVER
