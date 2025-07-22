@@ -159,6 +159,28 @@ app.post('/api/login', (req, res) => {
         res.status(401).json({ message: 'Sai thông tin đăng nhập' });
     }
 });
+// API Endpoint để kiểm tra trạng thái đăng nhập
+app.get('/api/auth/status', (req, res) => {
+    // express-session sẽ tự động thêm đối tượng 'session' vào request (req).
+    // Chúng ta chỉ cần kiểm tra xem có thông tin người dùng đã được lưu trong session hay không.
+    // (Bạn đã lưu thông tin này trong route /api/login)
+    
+    if (req.session && req.session.userId) {
+        // Nếu có userId trong session, có nghĩa là người dùng đã đăng nhập.
+        res.status(200).json({
+            authenticated: true,
+            user: {
+                id: req.session.userId,
+                username: req.session.username
+                // Bạn có thể gửi thêm thông tin người dùng khác nếu cần
+            }
+        });
+    } else {
+        // Nếu không, có nghĩa là họ chưa đăng nhập.
+        // Trả về status 200 vì đây không phải là lỗi, chỉ là thông báo trạng thái.
+        res.status(200).json({ authenticated: false });
+    }
+});
 
 app.get('/api/logout', (req, res) => {
     req.session.destroy(err => {
