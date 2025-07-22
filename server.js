@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -9,12 +10,87 @@ const port = process.env.PORT || 8080;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// CORS headers for admin API calls
+app.use('/api/', (req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+    } else {
+        next();
+    }
+});
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const uploadDir = path.join(__dirname, 'public', 'uploads');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'property-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const upload = multer({ 
+    storage: storage,
+    limits: {
+        fileSize: 5 * 1024 * 1024 // 5MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed!'), false);
+        }
+    }
+});
+
 console.log('🚀 Villa Agency - Super Simple Auth');
 
 // =================================================================
 //                      SIMPLE AUTH STORAGE
 // =================================================================
 let loggedInUsers = new Set(); // Just store logged in IPs
+
+// =================================================================
+//                      IN-MEMORY PROPERTY STORAGE
+// =================================================================
+let properties = [];
+let nextPropertyId = 1;
+
+// Sample data for testing
+properties.push(
+    {
+        PropertyID: nextPropertyId++,
+        Category: "Luxury Villa",
+        Name: "Modern Villa in District 2",
+        Price: 5000000000,
+        Bedrooms: 4,
+        Bathrooms: 3,
+        Area: 300,
+        Floor: 2,
+        Parking: 2,
+        ImageURL: "/assets/images/property-01.jpg"
+    },
+    {
+        PropertyID: nextPropertyId++,
+        Category: "Apartment",
+        Name: "High-end Apartment Downtown",
+        Price: 2500000000,
+        Bedrooms: 2,
+        Bathrooms: 2,
+        Area: 120,
+        Floor: 15,
+        Parking: 1,
+        ImageURL: "/assets/images/property-02.jpg"
+    }
+);
 
 function isLoggedIn(req) {
     const userKey = req.ip + '-' + req.get('User-Agent');
@@ -169,6 +245,184 @@ app.get('/api/auth/status', (req, res) => {
         authenticated: isLoggedIn(req),
         user: isLoggedIn(req) ? { username: 'admin' } : null
     });
+});
+
+// =================================================================
+//                      PROPERTY MANAGEMENT API
+// =================================================================
+
+// Get all properties
+app.get('/api/properties', requireLogin, (req, res) => {
+    console.log(`📋 Getting all properties for ${req.ip}`);
+    res.json(properties);
+});
+
+// Get single property by ID
+app.get('/api/properties/:id', requireLogin, (req, res) => {
+    const id = parseInt(req.params.id);
+    const property = properties.find(p => p.PropertyID === id);
+    
+    if (property) {
+        console.log(`📋 Getting property ${id} for ${req.ip}`);
+        res.json(property);
+    } else {
+        console.log(`❌ Property ${id} not found for ${req.ip}`);
+        res.status(404).json({ message: 'Property not found' });
+    }
+});
+
+// Create new property
+app.post('/api/properties', requireLogin, upload.single('imageFile'), (req, res) => {
+    try {
+        console.log(`➕ Creating new property for ${req.ip}`, req.body);
+        
+        const {
+            Category = '',
+            Name = '',
+            Price = 0,
+            Bedrooms = 0,
+            Bathrooms = 0,
+            Area = 0,
+            Floor = 0,
+            Parking = 0
+        } = req.body;
+
+        // Validation
+        if (!Name || !Category || !Price) {
+            return res.status(400).json({ 
+                message: 'Name, Category, and Price are required' 
+            });
+        }
+
+        // Handle image upload
+        let imageURL = '/assets/images/property-default.jpg'; // Default image
+        if (req.file) {
+            imageURL = `/uploads/${req.file.filename}`;
+            console.log(`📷 Image uploaded: ${imageURL}`);
+        }
+
+        const newProperty = {
+            PropertyID: nextPropertyId++,
+            Category: Category.trim(),
+            Name: Name.trim(),
+            Price: parseFloat(Price) || 0,
+            Bedrooms: parseInt(Bedrooms) || 0,
+            Bathrooms: parseInt(Bathrooms) || 0,
+            Area: parseFloat(Area) || 0,
+            Floor: parseInt(Floor) || 0,
+            Parking: parseInt(Parking) || 0,
+            ImageURL: imageURL
+        };
+
+        properties.push(newProperty);
+        
+        console.log(`✅ Property created with ID: ${newProperty.PropertyID}`);
+        res.status(201).json({
+            success: true,
+            message: 'Property created successfully',
+            property: newProperty
+        });
+        
+    } catch (error) {
+        console.error('Error creating property:', error);
+        res.status(500).json({ 
+            message: 'Error creating property: ' + error.message 
+        });
+    }
+});
+
+// Update property
+app.put('/api/properties/:id', requireLogin, upload.single('imageFile'), (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        const propertyIndex = properties.findIndex(p => p.PropertyID === id);
+        
+        if (propertyIndex === -1) {
+            return res.status(404).json({ message: 'Property not found' });
+        }
+
+        console.log(`✏️ Updating property ${id} for ${req.ip}`, req.body);
+        
+        const {
+            Category,
+            Name,
+            Price,
+            Bedrooms,
+            Bathrooms,
+            Area,
+            Floor,
+            Parking,
+            existingImageURL
+        } = req.body;
+
+        // Get current property
+        const currentProperty = properties[propertyIndex];
+        
+        // Handle image update
+        let imageURL = existingImageURL || currentProperty.ImageURL;
+        if (req.file) {
+            imageURL = `/uploads/${req.file.filename}`;
+            console.log(`📷 New image uploaded: ${imageURL}`);
+        }
+
+        // Update property with provided values or keep existing ones
+        const updatedProperty = {
+            ...currentProperty,
+            Category: Category ? Category.trim() : currentProperty.Category,
+            Name: Name ? Name.trim() : currentProperty.Name,
+            Price: Price ? parseFloat(Price) : currentProperty.Price,
+            Bedrooms: Bedrooms !== undefined ? parseInt(Bedrooms) : currentProperty.Bedrooms,
+            Bathrooms: Bathrooms !== undefined ? parseInt(Bathrooms) : currentProperty.Bathrooms,
+            Area: Area !== undefined ? parseFloat(Area) : currentProperty.Area,
+            Floor: Floor !== undefined ? parseInt(Floor) : currentProperty.Floor,
+            Parking: Parking !== undefined ? parseInt(Parking) : currentProperty.Parking,
+            ImageURL: imageURL
+        };
+
+        properties[propertyIndex] = updatedProperty;
+        
+        console.log(`✅ Property ${id} updated successfully`);
+        res.json({
+            success: true,
+            message: 'Property updated successfully',
+            property: updatedProperty
+        });
+        
+    } catch (error) {
+        console.error('Error updating property:', error);
+        res.status(500).json({ 
+            message: 'Error updating property: ' + error.message 
+        });
+    }
+});
+
+// Delete property
+app.delete('/api/properties/:id', requireLogin, (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        const propertyIndex = properties.findIndex(p => p.PropertyID === id);
+        
+        if (propertyIndex === -1) {
+            return res.status(404).json({ message: 'Property not found' });
+        }
+
+        console.log(`🗑️ Deleting property ${id} for ${req.ip}`);
+        
+        const deletedProperty = properties.splice(propertyIndex, 1)[0];
+        
+        console.log(`✅ Property ${id} deleted successfully`);
+        res.json({
+            success: true,
+            message: 'Property deleted successfully',
+            property: deletedProperty
+        });
+        
+    } catch (error) {
+        console.error('Error deleting property:', error);
+        res.status(500).json({ 
+            message: 'Error deleting property: ' + error.message 
+        });
+    }
 });
 
 // Health check
