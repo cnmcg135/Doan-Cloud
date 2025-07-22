@@ -27,24 +27,32 @@ app.use(express.urlencoded({ extended: true }));
 
 // Cấu hình Session
 const isProduction = process.env.NODE_ENV === 'production';
+
+// Khởi tạo session store và bắt lỗi
 const sessionStore = new MsSqlStore({
     connectionString: process.env.DATABASE_CONNECTION_STRING,
-        options: {
-            table: 'Sessions'
-        }
+    options: {
+        table: 'Sessions'
+    }
+}, (err) => {
+    if (err) console.error('LỖI KHI KHỞI TẠO SESSION STORE:', err);
 });
+sessionStore.on('error', (err) => {
+    console.error('LỖI SESSION STORE:', err);
+});
+
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'minhcong13052004', // Nên lưu trong biến môi trường
+    secret: process.env.SESSION_SECRET || 'minhcong13052004',
     resave: false,
-    saveUninitialized: false, // Thay đổi thành false để tránh tạo session không cần thiết
+    saveUninitialized: false,
+    store: sessionStore, // <-- THÊM DÒNG QUAN TRỌNG NÀY VÀO!
     cookie: {
         secure: isProduction,
         httpOnly: true,
         sameSite: 'lax',
-        maxAge: 60 * 60 * 1000 // 1 giờ
+        maxAge: 24 * 60 * 60 * 1000 // Tăng lên 24 giờ cho tiện
     }
 }));
-
 // Quan trọng: Báo cho Express tin tưởng proxy của Azure
 if (isProduction) {
     app.set('trust proxy', 1);
