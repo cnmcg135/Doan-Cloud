@@ -6,6 +6,7 @@ const sql = require('mssql');
 const path = require('path');
 const session = require('express-session');
 const multer = require('multer'); // Thư viện xử lý file upload
+const MongoStore = require('connect-mongo'); // Thêm connect-mongo
 require('dotenv').config();
 
 // Import middleware từ file riêng
@@ -17,7 +18,7 @@ const { requireAdmin } = require('./middleware.js');
 // =================================================================
 const app = express();
 const port = process.env.PORT || 3000;
-
+const isProduction = process.env.NODE_ENV === 'production';
 // Middleware để đọc dữ liệu JSON và form
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -26,6 +27,11 @@ app.use(session({
     secret: 'minhcong13052004', // Giữ nguyên secret của bạn
     resave: false,
     saveUninitialized: true,
+    store: MongoStore.create({
+        mongoUrl: process.env.MONGODB_URI,
+        collectionName: 'sessions',
+        ttl: 14 * 24 * 60 * 60 // 14 ngày
+    }),
     cookie: {
         // secure: true CHỈ khi ở môi trường production (trên Azure với HTTPS)
         // secure: false khi ở môi trường local (với HTTP)
@@ -37,8 +43,13 @@ app.use(session({
         maxAge: 60 * 60 * 1000 // 1 giờ
     }
 }));
+// Kết nối đến MongoDB
+const dbURI = process.env.MONGODB_URI;
+mongoose.connect(dbURI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log('MongoDB connected successfully.'))
+    .catch(err => console.error('MongoDB connection error:', err));
 // Cấu hình Session
-const isProduction = process.env.NODE_ENV === 'production';
+
 
 // Quan trọng: Báo cho Express tin tưởng proxy của Azure
 // Điều này cần thiết để cookie 'secure' hoạt động đúng
