@@ -372,7 +372,7 @@
                     throw new Error('Server trả về dữ liệu không hợp lệ');
                 }
                 
-                if (response.ok && data.success) {
+                if (response.ok) {
                     debugLog('Đăng nhập thành công!');
                     showMessage('Đăng nhập thành công! Đang chuyển hướng...', 'success');
                     
