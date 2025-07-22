@@ -7,10 +7,12 @@ const path = require('path');
 const session = require('express-session');
 const multer = require('multer'); // Thư viện xử lý file upload
 const bcrypt = require('bcrypt'); // Thêm bcrypt để mã hóa mật khẩu
+const MsSqlStore = require('connect-mssql-v2');
 require('dotenv').config();
 
 // Import middleware từ file riêng
 const { requireAdmin } = require('./middleware.js');
+const { table } = require('console');
 
 
 // =================================================================
@@ -25,7 +27,12 @@ app.use(express.urlencoded({ extended: true }));
 
 // Cấu hình Session
 const isProduction = process.env.NODE_ENV === 'production';
-
+const sessionStore = new MsSqlStore({
+    connectionString: process.env.DATABASE_CONNECTION_STRING,
+        options: {
+            table: 'Sessions'
+        }
+});
 app.use(session({
     secret: process.env.SESSION_SECRET || 'minhcong13052004', // Nên lưu trong biến môi trường
     resave: false,
