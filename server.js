@@ -6,6 +6,7 @@ const sql = require('mssql');
 const path = require('path');
 const session = require('express-session');
 const multer = require('multer'); // Thư viện xử lý file upload
+const bcrypt = require('bcrypt'); // Thêm bcrypt để mã hóa mật khẩu
 require('dotenv').config();
 
 // Import middleware từ file riêng
@@ -26,34 +27,29 @@ app.use(express.urlencoded({ extended: true }));
 const isProduction = process.env.NODE_ENV === 'production';
 
 app.use(session({
-    secret: 'minhcong13052004', // Giữ nguyên secret của bạn
+    secret: process.env.SESSION_SECRET || 'minhcong13052004', // Nên lưu trong biến môi trường
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false, // Thay đổi thành false để tránh tạo session không cần thiết
     cookie: {
-        // secure: true CHỈ khi ở môi trường production (trên Azure với HTTPS)
-        // secure: false khi ở môi trường local (với HTTP)
         secure: isProduction,
-
-        // Các thiết lập bảo mật khác được khuyến nghị:
-        httpOnly: true, // Ngăn JavaScript phía client truy cập vào cookie
-        sameSite: 'lax', // Giúp chống lại tấn công CSRF
+        httpOnly: true,
+        sameSite: 'lax',
         maxAge: 60 * 60 * 1000 // 1 giờ
     }
 }));
 
 // Quan trọng: Báo cho Express tin tưởng proxy của Azure
-// Điều này cần thiết để cookie 'secure' hoạt động đúng
 if (isProduction) {
-    app.set('trust proxy', 1); // Tin tưởng proxy đầu tiên
+    app.set('trust proxy', 1);
 }
 
 // Cấu hình Multer để lưu file upload
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        cb(null, 'public/uploads/'); // File sẽ được lưu vào thư mục này
+        cb(null, 'public/uploads/');
     },
     filename: function (req, file, cb) {
-        cb(null, Date.now() + '-' + file.originalname); // Đặt lại tên file để tránh trùng lặp
+        cb(null, Date.now() + '-' + file.originalname);
     }
 });
 const upload = multer({ storage: storage });
@@ -62,31 +58,84 @@ const upload = multer({ storage: storage });
 // =================================================================
 //                      KẾT NỐI CƠ SỞ DỮ LIỆU
 // =================================================================
-// Lấy chuỗi kết nối từ biến môi trường mà App Service đã tiêm vào từ Key Vault
 const connectionString = process.env.DATABASE_CONNECTION_STRING;
 
 let pool;
 async function connectToDatabase() {
-    // Kiểm tra xem biến môi trường có tồn tại không
     if (!connectionString) {
-        console.error("LỖI CẤU HÌNH: Biến môi trường DATABASE_CONNECTION_STRING chưa được thiết lập trên App Service.");
-        process.exit(1); // Thoát ứng dụng nếu không có chuỗi kết nối
+        console.error("LỖI CẤU HÌNH: Biến môi trường DATABASE_CONNECTION_STRING chưa được thiết lập.");
+        process.exit(1);
     }
 
     try {
-        // Sử dụng trực tiếp chuỗi kết nối này để tạo pool
         pool = await new sql.ConnectionPool(connectionString).connect();
-        console.log("Kết nối CSDL bằng chuỗi kết nối từ Key Vault thành công!");
+        console.log("Kết nối CSDL thành công!");
+        
+        // Tự động tạo bảng Users nếu chưa có
+        await initializeUsersTable();
     } catch (err) {
         console.error("LỖI KẾT NỐI CSDL:", err);
         process.exit(1);
     }
 }
+
+// Hàm khởi tạo bảng Users và tạo admin mặc định
+async function initializeUsersTable() {
+    try {
+        // Kiểm tra xem bảng Users đã tồn tại chưa
+        const checkTableQuery = `
+            SELECT COUNT(*) as count 
+            FROM INFORMATION_SCHEMA.TABLES 
+            WHERE TABLE_NAME = 'Users'
+        `;
+        
+        const tableExists = await pool.request().query(checkTableQuery);
+        
+        if (tableExists.recordset[0].count === 0) {
+            // Tạo bảng Users
+            const createTableQuery = `
+                CREATE TABLE Users (
+                    UserID int IDENTITY(1,1) PRIMARY KEY,
+                    Username nvarchar(50) UNIQUE NOT NULL,
+                    PasswordHash nvarchar(255) NOT NULL,
+                    Role nvarchar(20) DEFAULT 'user',
+                    CreatedAt datetime DEFAULT GETDATE(),
+                    IsActive bit DEFAULT 1
+                )
+            `;
+            
+            await pool.request().query(createTableQuery);
+            console.log("Đã tạo bảng Users thành công!");
+            
+            // Tạo tài khoản admin mặc định
+            const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
+            const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+            
+            const createAdminQuery = `
+                INSERT INTO Users (Username, PasswordHash, Role) 
+                VALUES (@username, @passwordHash, @role)
+            `;
+            
+            await pool.request()
+                .input('username', sql.NVarChar(50), 'admin')
+                .input('passwordHash', sql.NVarChar(255), hashedPassword)
+                .input('role', sql.NVarChar(20), 'admin')
+                .query(createAdminQuery);
+                
+            console.log("Đã tạo tài khoản admin mặc định!");
+        } else {
+            console.log("Bảng Users đã tồn tại.");
+        }
+    } catch (err) {
+        console.error("Lỗi khi khởi tạo bảng Users:", err);
+    }
+}
+
 connectToDatabase();
 
 
 // =================================================================
-//                      ĐỊNH NGHĨA CÁC API (PHẢI ĐẶT TRƯỚC PHỤC VỤ FILE TĨNH)
+//                      ĐỊNH NGHĨA CÁC API
 // =================================================================
 
 // --- API CÔNG KHAI ---
@@ -100,28 +149,21 @@ app.get('/api/properties', async (req, res) => {
     }
 });
 
-// =================================================================
-// API /contact ĐÃ ĐƯỢC SỬA ĐỂ DÙNG POOL
-// =================================================================
+// API Contact
 app.post('/contact', async (req, res) => {
     const { name, email, subject, message } = req.body;
-
-    console.log('Nhận được yêu cầu gửi liên hệ:', req.body);
 
     if (!name || !email || !subject || !message) {
         return res.status(400).json({ message: 'Vui lòng điền đầy đủ thông tin.' });
     }
 
     try {
-        // Kiểm tra xem pool kết nối chung có sẵn sàng không
         if (!pool || !pool.connected) {
-            console.error('API /contact: CSDL chưa sẵn sàng.');
             return res.status(503).json({ message: 'Dịch vụ tạm thời không khả dụng.' });
         }
         
         const query = 'INSERT INTO Contacts (Name, Email, Subject, Message) VALUES (@name, @email, @subject, @message)';
 
-        // Sử dụng pool kết nối chung, không cần tạo connection mới
         await pool.request()
             .input('name', sql.NVarChar, name)
             .input('email', sql.NVarChar, email)
@@ -129,32 +171,110 @@ app.post('/contact', async (req, res) => {
             .input('message', sql.NVarChar, message)
             .query(query);
 
-        // Trả về kết quả thành công
         res.status(200).json({ message: 'Tin nhắn đã được gửi thành công.' });
 
     } catch (err) {
-        // Xử lý lỗi nếu có
         console.error('Lỗi khi lưu contact vào CSDL:', err);
         res.status(500).json({ message: 'Lỗi server, không thể lưu tin nhắn.' });
     }
 });
 
-// --- API XÁC THỰC ---
-app.post('/api/login', (req, res) => {
+// --- API XÁC THỰC (SỬA CHÍNH) ---
+app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
-    if (username === 'admin' && password === 'admin123') {
-        req.session.user = { username: 'admin', role: 'admin' };
-        res.status(200).json({ message: 'Đăng nhập thành công', redirectTo: '/admin/dashboard.html' });
+    
+    if (!username || !password) {
+        return res.status(400).json({ message: 'Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu' });
+    }
+    
+    try {
+        if (!pool) {
+            return res.status(500).json({ message: 'Lỗi server: CSDL chưa sẵn sàng.' });
+        }
+        
+        // Tìm user trong database
+        const userQuery = `
+            SELECT UserID, Username, PasswordHash, Role, IsActive 
+            FROM Users 
+            WHERE Username = @username AND IsActive = 1
+        `;
+        
+        const userResult = await pool.request()
+            .input('username', sql.NVarChar(50), username)
+            .query(userQuery);
+        
+        if (userResult.recordset.length === 0) {
+            return res.status(401).json({ message: 'Tên đăng nhập hoặc mật khẩu không đúng' });
+        }
+        
+        const user = userResult.recordset[0];
+        
+        // Kiểm tra mật khẩu
+        const isPasswordValid = await bcrypt.compare(password, user.PasswordHash);
+        
+        if (!isPasswordValid) {
+            return res.status(401).json({ message: 'Tên đăng nhập hoặc mật khẩu không đúng' });
+        }
+        
+        // Lưu thông tin user vào session
+        req.session.user = {
+            id: user.UserID,
+            username: user.Username,
+            role: user.Role
+        };
+        
+        // Lưu session và trả về kết quả
+        req.session.save((err) => {
+            if (err) {
+                console.error('Lỗi lưu session:', err);
+                return res.status(500).json({ message: 'Lỗi server khi đăng nhập' });
+            }
+            
+            res.status(200).json({ 
+                message: 'Đăng nhập thành công', 
+                redirectTo: '/admin/dashboard.html',
+                user: {
+                    username: user.Username,
+                    role: user.Role
+                }
+            });
+        });
+        
+    } catch (err) {
+        console.error('Lỗi khi đăng nhập:', err);
+        res.status(500).json({ message: 'Lỗi server khi đăng nhập' });
+    }
+});
+
+// API kiểm tra trạng thái đăng nhập
+app.get('/api/auth/status', (req, res) => {
+    if (req.session && req.session.user) {
+        res.json({
+            authenticated: true,
+            user: {
+                username: req.session.user.username,
+                role: req.session.user.role
+            }
+        });
     } else {
-        res.status(401).json({ message: 'Sai thông tin đăng nhập' });
+        res.json({ authenticated: false });
     }
 });
 
 app.get('/api/logout', (req, res) => {
     req.session.destroy(err => {
-        if (err) return res.status(500).send('Không thể đăng xuất');
+        if (err) {
+            console.error('Lỗi khi đăng xuất:', err);
+            return res.status(500).json({ message: 'Không thể đăng xuất' });
+        }
         res.clearCookie('connect.sid');
-        res.redirect('/admin/login.html');
+        
+        // Kiểm tra xem request có phải từ AJAX không
+        if (req.headers.accept && req.headers.accept.includes('application/json')) {
+            res.json({ message: 'Đăng xuất thành công', redirectTo: '/admin/login.html' });
+        } else {
+            res.redirect('/admin/login.html');
+        }
     });
 });
 
@@ -175,7 +295,7 @@ app.get('/api/properties/:id', requireAdmin, async (req, res) => {
     }
 });
 
-// API Thêm sản phẩm mới (có xử lý upload file)
+// API Thêm sản phẩm mới
 app.post('/api/properties', requireAdmin, upload.single('imageFile'), async (req, res) => {
     const { Category, Price, Name, Bedrooms, Bathrooms, Area, Floor, Parking } = req.body;
     if (!req.file) {
@@ -203,15 +323,14 @@ app.post('/api/properties', requireAdmin, upload.single('imageFile'), async (req
     }
 });
 
-// API Cập nhật sản phẩm (có xử lý upload file)
-// API Cập nhật sản phẩm (có xử lý upload file)
+// API Cập nhật sản phẩm
 app.put('/api/properties/:id', requireAdmin, upload.single('imageFile'), async (req, res) => {
     const { id } = req.params;
     const { Category, Price, Name, Bedrooms, Bathrooms, Area, Floor, Parking, existingImageURL } = req.body;
     
-    let imageURL = existingImageURL; // Mặc định giữ ảnh cũ
+    let imageURL = existingImageURL;
     if (req.file) {
-        imageURL = `/uploads/${req.file.filename}`; // Nếu có ảnh mới, cập nhật đường dẫn
+        imageURL = `/uploads/${req.file.filename}`;
     }
 
     try {
@@ -231,8 +350,6 @@ app.put('/api/properties/:id', requireAdmin, upload.single('imageFile'), async (
             WHERE PropertyID = @id
         `;
 
-        // === PHẦN SỬA LỖI QUAN TRỌNG ===
-        // Phải định nghĩa input cho TẤT CẢ các biến trong câu query
         await pool.request()
             .input('id', sql.Int, id)
             .input('Category', sql.NVarChar(50), Category)
@@ -249,7 +366,6 @@ app.put('/api/properties/:id', requireAdmin, upload.single('imageFile'), async (
         res.status(200).json({ message: `Cập nhật sản phẩm ID ${id} thành công` });
 
     } catch (err) {
-        // In ra lỗi chi tiết trong terminal để dễ debug
         console.error(`Lỗi khi cập nhật sản phẩm ID ${id}:`, err);
         res.status(500).json({ message: 'Lỗi server khi cập nhật sản phẩm' });
     }
@@ -271,10 +387,61 @@ app.delete('/api/properties/:id', requireAdmin, async (req, res) => {
     }
 });
 
+// API thay đổi mật khẩu admin
+app.post('/api/admin/change-password', requireAdmin, async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+        return res.status(400).json({ message: 'Vui lòng nhập đầy đủ mật khẩu hiện tại và mật khẩu mới' });
+    }
+    
+    if (newPassword.length < 6) {
+        return res.status(400).json({ message: 'Mật khẩu mới phải có ít nhất 6 ký tự' });
+    }
+    
+    try {
+        const userId = req.session.user.id;
+        
+        // Lấy mật khẩu hiện tại từ database
+        const userQuery = 'SELECT PasswordHash FROM Users WHERE UserID = @userId';
+        const userResult = await pool.request()
+            .input('userId', sql.Int, userId)
+            .query(userQuery);
+        
+        if (userResult.recordset.length === 0) {
+            return res.status(404).json({ message: 'Không tìm thấy tài khoản' });
+        }
+        
+        const currentHashedPassword = userResult.recordset[0].PasswordHash;
+        
+        // Kiểm tra mật khẩu hiện tại
+        const isCurrentPasswordValid = await bcrypt.compare(currentPassword, currentHashedPassword);
+        
+        if (!isCurrentPasswordValid) {
+            return res.status(400).json({ message: 'Mật khẩu hiện tại không đúng' });
+        }
+        
+        // Mã hóa mật khẩu mới
+        const newHashedPassword = await bcrypt.hash(newPassword, 10);
+        
+        // Cập nhật mật khẩu trong database
+        const updateQuery = 'UPDATE Users SET PasswordHash = @newPasswordHash WHERE UserID = @userId';
+        await pool.request()
+            .input('userId', sql.Int, userId)
+            .input('newPasswordHash', sql.NVarChar(255), newHashedPassword)
+            .query(updateQuery);
+        
+        res.json({ message: 'Đổi mật khẩu thành công' });
+        
+    } catch (err) {
+        console.error('Lỗi khi đổi mật khẩu:', err);
+        res.status(500).json({ message: 'Lỗi server khi đổi mật khẩu' });
+    }
+});
+
 // ====================================================================
 //                ROUTE ĐẶC BIỆT CHO LET'S ENCRYPT
 // ====================================================================
-// Mỗi lần retry, bạn cần vào đây và cập nhật lại TÊN FILE và NỘI DUNG
 const acmeChallengeFile = 'PCLHtQcSuK9lVz9RUQyO1l8IlON14ceXyEvVwgxXBkU';
 const acmeChallengeContent = 'PCLHtQcSuK9lVz9RUQyO1l8IlON14ceXyEvVwgxXBkU.oPx2MRDy2BlWhrx4dCFxJXuU_iSxlMBt3kfFpijH3TU';
 
@@ -282,26 +449,35 @@ app.get(`/.well-known/acme-challenge/${acmeChallengeFile}`, (req, res) => {
     res.type('text/plain');
     res.send(acmeChallengeContent);
 });
-// ====================================================================
 
 // =================================================================
-//                      PHỤC VỤ FILE TĨNH VÀ HTML (ĐẶT Ở CUỐI CÙNG)
+//                      PHỤC VỤ FILE TĨNH VÀ HTML
 // =================================================================
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
-app.use('/uploads', express.static(path.join(__dirname, 'public/uploads'))); // Phục vụ thư mục ảnh upload
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 // Route cho trang đăng nhập (công khai)
 app.get('/admin/login.html', (req, res) => {
+    // Kiểm tra xem user đã đăng nhập chưa, nếu rồi thì redirect
+    if (req.session && req.session.user) {
+        return res.redirect('/admin/dashboard.html');
+    }
     res.sendFile(path.join(__dirname, 'admin/login.html'));
 });
 
-// Bảo vệ tất cả các file trong thư mục /admin
-app.use('/admin', requireAdmin, express.static(path.join(__dirname, 'admin')));
+// Bảo vệ tất cả các file trong thư mục /admin (trừ login.html)
+app.use('/admin', (req, res, next) => {
+    // Cho phép truy cập login.html mà không cần xác thực
+    if (req.path === '/login.html') {
+        return next();
+    }
+    // Áp dụng middleware requireAdmin cho các route khác
+    requireAdmin(req, res, next);
+}, express.static(path.join(__dirname, 'admin')));
 
-// Phục vụ các file ở thư mục gốc (index.html, contact.html,...)
+// Phục vụ các file ở thư mục gốc
 app.use(express.static(path.join(__dirname, '')));
-
 
 // =================================================================
 //                      KHỞI ĐỘNG SERVER
