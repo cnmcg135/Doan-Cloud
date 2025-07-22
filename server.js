@@ -458,23 +458,18 @@ app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 // Route cho trang đăng nhập (công khai)
-app.get('/admin/login.html', (req, res) => {
+app.get('/admin/login.html', (req, res, next) => {
     // Kiểm tra xem user đã đăng nhập chưa, nếu rồi thì redirect
     if (req.session && req.session.user) {
         return res.redirect('/admin/dashboard.html');
     }
-    res.sendFile(path.join(__dirname, 'admin/login.html'));
+    next();
 });
 
 // Bảo vệ tất cả các file trong thư mục /admin (trừ login.html)
-app.use('/admin', (req, res, next) => {
-    // Cho phép truy cập login.html mà không cần xác thực
-    if (req.path === '/login.html') {
-        return next();
-    }
-    // Áp dụng middleware requireAdmin cho các route khác
-    requireAdmin(req, res, next);
-}, express.static(path.join(__dirname, 'admin')));
+app.use('/admin', requireAdmin);
+
+app.use('/admin', express.static(path.join(__dirname, 'admin')));
 
 // Phục vụ các file ở thư mục gốc
 app.use(express.static(path.join(__dirname, '')));
