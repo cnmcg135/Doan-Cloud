@@ -453,25 +453,34 @@ app.get(`/.well-known/acme-challenge/${acmeChallengeFile}`, (req, res) => {
 // =================================================================
 //                      PHỤC VỤ FILE TĨNH VÀ HTML
 // =================================================================
+// Phục vụ các thư mục công khai, không cần xác thực
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
-// Route cho trang đăng nhập (công khai)
+// 1. Xử lý đặc biệt cho trang login.html
+//    Nếu đã đăng nhập, chuyển hướng đi. Nếu chưa, cho phép truy cập.
 app.get('/admin/login.html', (req, res, next) => {
-    // Kiểm tra xem user đã đăng nhập chưa, nếu rồi thì redirect
+    console.log('[Route] Xử lý GET /admin/login.html');
     if (req.session && req.session.user) {
+        console.log('[Route] User đã đăng nhập, chuyển hướng tới dashboard.');
         return res.redirect('/admin/dashboard.html');
     }
+    // Nếu chưa đăng nhập, cho phép đi tiếp để express.static phục vụ file
+    console.log('[Route] User chưa đăng nhập, cho phép hiển thị trang login.');
     next();
 });
 
-// Bảo vệ tất cả các file trong thư mục /admin (trừ login.html)
+// 2. Áp dụng middleware bảo vệ cho TẤT CẢ các đường dẫn /admin
+//    Middleware này sẽ chạy cho mọi thứ trong /admin (ví dụ: /admin/dashboard.html)
+//    Nhưng nó sẽ bỏ qua /admin/login.html nhờ logic ta thêm vào ở Bước 1.
 app.use('/admin', requireAdmin);
 
+// 3. SAU KHI đã qua lớp bảo vệ, phục vụ các file tĩnh trong thư mục /admin
+//    Chỉ những ai vượt qua `requireAdmin` mới đến được đây.
 app.use('/admin', express.static(path.join(__dirname, 'admin')));
 
-// Phục vụ các file ở thư mục gốc
+// Phục vụ các file ở thư mục gốc (như trang chủ của website)
 app.use(express.static(path.join(__dirname, '')));
 
 // =================================================================
