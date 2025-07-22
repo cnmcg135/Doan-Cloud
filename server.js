@@ -5,15 +5,13 @@ const express = require('express');
 const sql = require('mssql');
 const path = require('path');
 const session = require('express-session');
-const multer = require('multer'); // Thư viện xử lý file upload
-const bcrypt = require('bcrypt'); // Thêm bcrypt để mã hóa mật khẩu
+const multer = require('multer');
+const bcrypt = require('bcrypt');
 const MsSqlStore = require('connect-mssql-v2');
 require('dotenv').config();
 
 // Import middleware từ file riêng
 const { requireAdmin } = require('./middleware.js');
-const { table } = require('console');
-
 
 // =================================================================
 //                      KHỞI TẠO VÀ CẤU HÌNH EXPRESS
@@ -22,43 +20,92 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware để đọc dữ liệu JSON và form
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Cấu hình Session
+// Cấu hình Session cho Azure
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Khởi tạo session store và bắt lỗi
-const sessionStore = new MsSqlStore({
-    connectionString: process.env.DATABASE_CONNECTION_STRING,
-    options: {
-        table: 'Sessions'
-    }
-}, (err) => {
-    if (err) console.error('LỖI KHI KHỞI TẠO SESSION STORE:', err);
-});
-sessionStore.on('error', (err) => {
-    console.error('LỖI SESSION STORE:', err);
-});
+console.log('Environment:', isProduction ? 'Production' : 'Development');
+console.log('Session Secret exists:', !!process.env.SESSION_SECRET);
+console.log('Database Connection String exists:', !!process.env.DATABASE_CONNECTION_STRING);
 
-app.use(session({
-    secret: process.env.SESSION_SECRET || 'minhcong13052004',
-    resave: false,
-    saveUninitialized: false,
-    store: sessionStore, // <-- THÊM DÒNG QUAN TRỌNG NÀY VÀO!
-    cookie: {
-        secure: isProduction,
-        httpOnly: true,
-        sameSite: 'lax',
-        maxAge: 24 * 60 * 60 * 1000 // Tăng lên 24 giờ cho tiện
+// Khởi tạo session store với error handling tốt hơn
+let sessionStore;
+try {
+    sessionStore = new MsSqlStore({
+        connectionString: process.env.DATABASE_CONNECTION_STRING,
+        options: {
+            table: 'Sessions',
+            autoRemove: 'interval',
+            autoRemoveInterval: 60000 // 1 phút
+        }
+    }, (err) => {
+        if (err) {
+            console.error('LỖI KHI KHỞI TẠO SESSION STORE:', err);
+        } else {
+            console.log('Session Store khởi tạo thành công');
+        }
+    });
+
+    sessionStore.on('error', (err) => {
+        console.error('LỖI SESSION STORE:', err);
+    });
+
+    sessionStore.on('connect', () => {
+        console.log('Session Store đã kết nối');
+    });
+} catch (error) {
+    console.error('Lỗi tạo Session Store:', error);
+    // Fallback to memory store in development
+    if (!isProduction) {
+        console.log('Sử dụng Memory Store làm fallback');
+        sessionStore = null;
     }
-}));
-// Quan trọng: Báo cho Express tin tưởng proxy của Azure
-if (isProduction) {
-    app.set('trust proxy', 1);
 }
 
-// Cấu hình Multer để lưu file upload
+// Cấu hình session được tối ưu cho Azure
+const sessionConfig = {
+    secret: process.env.SESSION_SECRET || 'minhcong13052004-fallback-secret',
+    resave: false,
+    saveUninitialized: false,
+    rolling: true, // Gia hạn session mỗi khi có activity
+    cookie: {
+        secure: isProduction, // true khi HTTPS trên Azure
+        httpOnly: true,
+        sameSite: isProduction ? 'lax' : 'lax',
+        maxAge: 24 * 60 * 60 * 1000, // 24 giờ
+        domain: undefined // Để Azure tự xử lý
+    },
+    name: 'sessionId' // Tên rõ ràng cho session cookie
+};
+
+// Chỉ thêm store nếu khởi tạo thành công
+if (sessionStore) {
+    sessionConfig.store = sessionStore;
+} else {
+    console.warn('Sử dụng memory store - không phù hợp cho production!');
+}
+
+app.use(session(sessionConfig));
+
+// Trust proxy cho Azure App Service
+if (isProduction) {
+    app.set('trust proxy', 1);
+    console.log('Trust proxy enabled for Azure');
+}
+
+// Middleware logging cho session
+app.use((req, res, next) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${req.method} ${req.path} - Session ID: ${req.sessionID}`);
+    if (req.session && req.session.user) {
+        console.log(`[${timestamp}] User: ${req.session.user.username} (${req.session.user.role})`);
+    }
+    next();
+});
+
+// Cấu hình Multer
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         cb(null, 'public/uploads/');
@@ -69,13 +116,12 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-
 // =================================================================
 //                      KẾT NỐI CƠ SỞ DỮ LIỆU
 // =================================================================
 const connectionString = process.env.DATABASE_CONNECTION_STRING;
-
 let pool;
+
 async function connectToDatabase() {
     if (!connectionString) {
         console.error("LỖI CẤU HÌNH: Biến môi trường DATABASE_CONNECTION_STRING chưa được thiết lập.");
@@ -86,7 +132,6 @@ async function connectToDatabase() {
         pool = await new sql.ConnectionPool(connectionString).connect();
         console.log("Kết nối CSDL thành công!");
         
-        // Tự động tạo bảng Users nếu chưa có
         await initializeUsersTable();
     } catch (err) {
         console.error("LỖI KẾT NỐI CSDL:", err);
@@ -94,10 +139,8 @@ async function connectToDatabase() {
     }
 }
 
-// Hàm khởi tạo bảng Users và tạo admin mặc định
 async function initializeUsersTable() {
     try {
-        // Kiểm tra xem bảng Users đã tồn tại chưa
         const checkTableQuery = `
             SELECT COUNT(*) as count 
             FROM INFORMATION_SCHEMA.TABLES 
@@ -107,7 +150,6 @@ async function initializeUsersTable() {
         const tableExists = await pool.request().query(checkTableQuery);
         
         if (tableExists.recordset[0].count === 0) {
-            // Tạo bảng Users
             const createTableQuery = `
                 CREATE TABLE Users (
                     UserID int IDENTITY(1,1) PRIMARY KEY,
@@ -138,6 +180,8 @@ async function initializeUsersTable() {
                 .query(createAdminQuery);
                 
             console.log("Đã tạo tài khoản admin mặc định!");
+            console.log(`Username: admin`);
+            console.log(`Password: ${defaultPassword}`);
         } else {
             console.log("Bảng Users đã tồn tại.");
         }
@@ -148,12 +192,207 @@ async function initializeUsersTable() {
 
 connectToDatabase();
 
+// =================================================================
+//                      API XÁC THỰC (ĐƯỢC SỬA LẠI HOÀN TOÀN)
+// =================================================================
+
+// API Login được cải thiện
+app.post('/api/login', async (req, res) => {
+    const timestamp = new Date().toISOString();
+    const { username, password } = req.body;
+    
+    console.log(`[${timestamp}] [LOGIN] Bắt đầu xử lý đăng nhập cho user: ${username}`);
+    console.log(`[${timestamp}] [LOGIN] Session ID: ${req.sessionID}`);
+    console.log(`[${timestamp}] [LOGIN] Request IP: ${req.ip}`);
+    console.log(`[${timestamp}] [LOGIN] User Agent: ${req.get('User-Agent')}`);
+    
+    if (!username || !password) {
+        console.log(`[${timestamp}] [LOGIN] Thiếu thông tin đăng nhập`);
+        return res.status(400).json({ 
+            success: false,
+            message: 'Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu' 
+        });
+    }
+    
+    try {
+        if (!pool) {
+            console.log(`[${timestamp}] [LOGIN] Pool không khả dụng`);
+            return res.status(500).json({ 
+                success: false,
+                message: 'Lỗi server: CSDL chưa sẵn sàng.' 
+            });
+        }
+        
+        console.log(`[${timestamp}] [LOGIN] Tìm kiếm user trong database...`);
+        
+        const userQuery = `
+            SELECT UserID, Username, PasswordHash, Role, IsActive 
+            FROM Users 
+            WHERE Username = @username AND IsActive = 1
+        `;
+        
+        const userResult = await pool.request()
+            .input('username', sql.NVarChar(50), username)
+            .query(userQuery);
+        
+        console.log(`[${timestamp}] [LOGIN] Kết quả tìm kiếm: ${userResult.recordset.length} user(s)`);
+        
+        if (userResult.recordset.length === 0) {
+            console.log(`[${timestamp}] [LOGIN] Không tìm thấy user hoặc user bị vô hiệu hóa`);
+            return res.status(401).json({ 
+                success: false,
+                message: 'Tên đăng nhập hoặc mật khẩu không đúng' 
+            });
+        }
+        
+        const user = userResult.recordset[0];
+        console.log(`[${timestamp}] [LOGIN] Tìm thấy user: ${user.Username}, Role: ${user.Role}`);
+        
+        // Kiểm tra mật khẩu
+        console.log(`[${timestamp}] [LOGIN] Kiểm tra mật khẩu...`);
+        const isPasswordValid = await bcrypt.compare(password, user.PasswordHash);
+        
+        if (!isPasswordValid) {
+            console.log(`[${timestamp}] [LOGIN] Mật khẩu không chính xác`);
+            return res.status(401).json({ 
+                success: false,
+                message: 'Tên đăng nhập hoặc mật khẩu không đúng' 
+            });
+        }
+        
+        console.log(`[${timestamp}] [LOGIN] Mật khẩu chính xác. Tạo session...`);
+        
+        // Regenerate session ID để bảo mật
+        req.session.regenerate((err) => {
+            if (err) {
+                console.error(`[${timestamp}] [LOGIN] Lỗi regenerate session:`, err);
+                return res.status(500).json({ 
+                    success: false,
+                    message: 'Lỗi server khi tạo session' 
+                });
+            }
+            
+            // Lưu thông tin user vào session
+            req.session.user = {
+                id: user.UserID,
+                username: user.Username,
+                role: user.Role,
+                loginTime: new Date().toISOString()
+            };
+            
+            console.log(`[${timestamp}] [LOGIN] Session data đã được set:`, req.session.user);
+            
+            // Lưu session
+            req.session.save((saveErr) => {
+                if (saveErr) {
+                    console.error(`[${timestamp}] [LOGIN] Lỗi lưu session:`, saveErr);
+                    return res.status(500).json({ 
+                        success: false,
+                        message: 'Lỗi server khi lưu session' 
+                    });
+                }
+                
+                console.log(`[${timestamp}] [LOGIN] Session đã được lưu thành công. New Session ID: ${req.sessionID}`);
+                
+                // Trả về response thành công
+                const response = {
+                    success: true,
+                    message: 'Đăng nhập thành công',
+                    redirectTo: '/admin/dashboard.html',
+                    user: {
+                        username: user.Username,
+                        role: user.Role
+                    },
+                    sessionId: req.sessionID
+                };
+                
+                console.log(`[${timestamp}] [LOGIN] Gửi response thành công:`, response);
+                res.status(200).json(response);
+            });
+        });
+        
+    } catch (err) {
+        console.error(`[${timestamp}] [LOGIN] Exception:`, err);
+        res.status(500).json({ 
+            success: false,
+            message: 'Lỗi server khi đăng nhập',
+            error: isProduction ? 'Internal Server Error' : err.message
+        });
+    }
+});
+
+// API kiểm tra trạng thái đăng nhập
+app.get('/api/auth/status', (req, res) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [AUTH_STATUS] Kiểm tra trạng thái đăng nhập`);
+    console.log(`[${timestamp}] [AUTH_STATUS] Session ID: ${req.sessionID}`);
+    console.log(`[${timestamp}] [AUTH_STATUS] Session exists: ${!!req.session}`);
+    console.log(`[${timestamp}] [AUTH_STATUS] User in session: ${!!req.session?.user}`);
+    
+    if (req.session && req.session.user) {
+        console.log(`[${timestamp}] [AUTH_STATUS] User authenticated: ${req.session.user.username}`);
+        res.json({
+            authenticated: true,
+            user: {
+                username: req.session.user.username,
+                role: req.session.user.role,
+                loginTime: req.session.user.loginTime
+            },
+            sessionId: req.sessionID
+        });
+    } else {
+        console.log(`[${timestamp}] [AUTH_STATUS] User not authenticated`);
+        res.json({ 
+            authenticated: false,
+            sessionId: req.sessionID
+        });
+    }
+});
+
+// API logout
+app.post('/api/logout', (req, res) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [LOGOUT] Xử lý đăng xuất`);
+    
+    req.session.destroy(err => {
+        if (err) {
+            console.error(`[${timestamp}] [LOGOUT] Lỗi khi đăng xuất:`, err);
+            return res.status(500).json({ 
+                success: false,
+                message: 'Không thể đăng xuất' 
+            });
+        }
+        
+        res.clearCookie('sessionId');
+        console.log(`[${timestamp}] [LOGOUT] Đăng xuất thành công`);
+        
+        res.json({ 
+            success: true,
+            message: 'Đăng xuất thành công', 
+            redirectTo: '/admin/login.html' 
+        });
+    });
+});
+
+// API test cho debugging
+app.get('/api/debug/session', (req, res) => {
+    if (!isProduction) { // Chỉ hoạt động trong development
+        res.json({
+            sessionID: req.sessionID,
+            session: req.session,
+            cookies: req.headers.cookie,
+            timestamp: new Date().toISOString()
+        });
+    } else {
+        res.status(404).json({ message: 'Not found' });
+    }
+});
 
 // =================================================================
-//                      ĐỊNH NGHĨA CÁC API
+//                      CÁC API KHÁC (GIỮ NGUYÊN)
 // =================================================================
 
-// --- API CÔNG KHAI ---
+// API công khai
 app.get('/api/properties', async (req, res) => {
     try {
         if (!pool) return res.status(500).json({ message: 'Lỗi server: CSDL chưa sẵn sàng.' });
@@ -194,108 +433,11 @@ app.post('/contact', async (req, res) => {
     }
 });
 
-// --- API XÁC THỰC (SỬA CHÍNH) ---
-app.post('/api/login', async (req, res) => {
-    const { username, password } = req.body;
-    
-    if (!username || !password) {
-        return res.status(400).json({ message: 'Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu' });
-    }
-    
-    try {
-        if (!pool) {
-            return res.status(500).json({ message: 'Lỗi server: CSDL chưa sẵn sàng.' });
-        }
-        
-        // Tìm user trong database
-        const userQuery = `
-            SELECT UserID, Username, PasswordHash, Role, IsActive 
-            FROM Users 
-            WHERE Username = @username AND IsActive = 1
-        `;
-        
-        const userResult = await pool.request()
-            .input('username', sql.NVarChar(50), username)
-            .query(userQuery);
-        
-        if (userResult.recordset.length === 0) {
-            return res.status(401).json({ message: 'Tên đăng nhập hoặc mật khẩu không đúng' });
-        }
-        
-        const user = userResult.recordset[0];
-        
-        // Kiểm tra mật khẩu
-        const isPasswordValid = await bcrypt.compare(password, user.PasswordHash);
-        
-        if (!isPasswordValid) {
-            return res.status(401).json({ message: 'Tên đăng nhập hoặc mật khẩu không đúng' });
-        }
-        
-        // Lưu thông tin user vào session
-        req.session.user = {
-            id: user.UserID,
-            username: user.Username,
-            role: user.Role
-        };
-        
-        // Lưu session và trả về kết quả
-        req.session.save((err) => {
-            if (err) {
-                console.error('Lỗi lưu session:', err);
-                return res.status(500).json({ message: 'Lỗi server khi đăng nhập' });
-            }
-            
-            res.status(200).json({ 
-                message: 'Đăng nhập thành công', 
-                redirectTo: '/admin/dashboard.html',
-                user: {
-                    username: user.Username,
-                    role: user.Role
-                }
-            });
-        });
-        
-    } catch (err) {
-        console.error('Lỗi khi đăng nhập:', err);
-        res.status(500).json({ message: 'Lỗi server khi đăng nhập' });
-    }
-});
+// =================================================================
+//                      API QUẢN TRỊ (Yêu cầu quyền Admin)
+// =================================================================
 
-// API kiểm tra trạng thái đăng nhập
-app.get('/api/auth/status', (req, res) => {
-    if (req.session && req.session.user) {
-        res.json({
-            authenticated: true,
-            user: {
-                username: req.session.user.username,
-                role: req.session.user.role
-            }
-        });
-    } else {
-        res.json({ authenticated: false });
-    }
-});
-
-app.get('/api/logout', (req, res) => {
-    req.session.destroy(err => {
-        if (err) {
-            console.error('Lỗi khi đăng xuất:', err);
-            return res.status(500).json({ message: 'Không thể đăng xuất' });
-        }
-        res.clearCookie('connect.sid');
-        
-        // Kiểm tra xem request có phải từ AJAX không
-        if (req.headers.accept && req.headers.accept.includes('application/json')) {
-            res.json({ message: 'Đăng xuất thành công', redirectTo: '/admin/login.html' });
-        } else {
-            res.redirect('/admin/login.html');
-        }
-    });
-});
-
-// --- API QUẢN TRỊ (CRUD - Yêu cầu quyền Admin) ---
-
-// API lấy MỘT sản phẩm (cho trang Sửa)
+// API lấy MỘT sản phẩm
 app.get('/api/properties/:id', requireAdmin, async (req, res) => {
     const { id } = req.params;
     try {
@@ -417,7 +559,6 @@ app.post('/api/admin/change-password', requireAdmin, async (req, res) => {
     try {
         const userId = req.session.user.id;
         
-        // Lấy mật khẩu hiện tại từ database
         const userQuery = 'SELECT PasswordHash FROM Users WHERE UserID = @userId';
         const userResult = await pool.request()
             .input('userId', sql.Int, userId)
@@ -428,18 +569,14 @@ app.post('/api/admin/change-password', requireAdmin, async (req, res) => {
         }
         
         const currentHashedPassword = userResult.recordset[0].PasswordHash;
-        
-        // Kiểm tra mật khẩu hiện tại
         const isCurrentPasswordValid = await bcrypt.compare(currentPassword, currentHashedPassword);
         
         if (!isCurrentPasswordValid) {
             return res.status(400).json({ message: 'Mật khẩu hiện tại không đúng' });
         }
         
-        // Mã hóa mật khẩu mới
         const newHashedPassword = await bcrypt.hash(newPassword, 10);
         
-        // Cập nhật mật khẩu trong database
         const updateQuery = 'UPDATE Users SET PasswordHash = @newPasswordHash WHERE UserID = @userId';
         await pool.request()
             .input('userId', sql.Int, userId)
@@ -454,9 +591,11 @@ app.post('/api/admin/change-password', requireAdmin, async (req, res) => {
     }
 });
 
-// ====================================================================
-//                ROUTE ĐẶC BIỆT CHO LET'S ENCRYPT
-// ====================================================================
+// =================================================================
+//                      PHỤC VỤ FILE TĨNH VÀ ROUTING
+// =================================================================
+
+// Route cho Let's Encrypt
 const acmeChallengeFile = 'PCLHtQcSuK9lVz9RUQyO1l8IlON14ceXyEvVwgxXBkU';
 const acmeChallengeContent = 'PCLHtQcSuK9lVz9RUQyO1l8IlON14ceXyEvVwgxXBkU.oPx2MRDy2BlWhrx4dCFxJXuU_iSxlMBt3kfFpijH3TU';
 
@@ -465,42 +604,84 @@ app.get(`/.well-known/acme-challenge/${acmeChallengeFile}`, (req, res) => {
     res.send(acmeChallengeContent);
 });
 
-// =================================================================
-//                      PHỤC VỤ FILE TĨNH VÀ HTML
-// =================================================================
-// Phục vụ các thư mục công khai, không cần xác thực
+// Phục vụ file tĩnh công khai
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
-// 1. Xử lý đặc biệt cho trang login.html
-//    Nếu đã đăng nhập, chuyển hướng đi. Nếu chưa, cho phép truy cập.
-app.get('/admin/login.html', (req, res, next) => {
-    console.log('[Route] Xử lý GET /admin/login.html');
+// XỬ LÝ ĐẶC BIỆT CHO LOGIN PAGE
+app.get('/admin/login.html', (req, res) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [ROUTE] GET /admin/login.html`);
+    
+    // Nếu đã đăng nhập, chuyển hướng về dashboard
     if (req.session && req.session.user) {
-        console.log('[Route] User đã đăng nhập, chuyển hướng tới dashboard.');
+        console.log(`[${timestamp}] [ROUTE] User đã đăng nhập, chuyển hướng về dashboard`);
         return res.redirect('/admin/dashboard.html');
     }
-    // Nếu chưa đăng nhập, cho phép đi tiếp để express.static phục vụ file
-    console.log('[Route] User chưa đăng nhập, cho phép hiển thị trang login.');
-    next();
+    
+    // Nếu chưa đăng nhập, hiển thị trang login
+    console.log(`[${timestamp}] [ROUTE] Hiển thị trang login`);
+    res.sendFile(path.join(__dirname, 'admin', 'login.html'));
 });
 
-// 2. Áp dụng middleware bảo vệ cho TẤT CẢ các đường dẫn /admin
-//    Middleware này sẽ chạy cho mọi thứ trong /admin (ví dụ: /admin/dashboard.html)
-//    Nhưng nó sẽ bỏ qua /admin/login.html nhờ logic ta thêm vào ở Bước 1.
-app.use('/admin', requireAdmin);
+// XỬ LÝ CHO DASHBOARD VÀ CÁC TRANG ADMIN KHÁC
+app.get('/admin/dashboard.html', requireAdmin, (req, res) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [ROUTE] GET /admin/dashboard.html - User: ${req.session.user.username}`);
+    res.sendFile(path.join(__dirname, 'admin', 'dashboard.html'));
+});
 
-// 3. SAU KHI đã qua lớp bảo vệ, phục vụ các file tĩnh trong thư mục /admin
-//    Chỉ những ai vượt qua `requireAdmin` mới đến được đây.
-app.use('/admin', express.static(path.join(__dirname, 'admin')));
+// Phục vụ các file tĩnh trong thư mục admin (có bảo vệ)
+app.use('/admin', requireAdmin, express.static(path.join(__dirname, 'admin')));
 
-// Phục vụ các file ở thư mục gốc (như trang chủ của website)
+// Phục vụ file tĩnh ở thư mục gốc
 app.use(express.static(path.join(__dirname, '')));
+
+// =================================================================
+//                      ERROR HANDLING
+// =================================================================
+
+// 404 handler
+app.use((req, res) => {
+    console.log(`404 - Not Found: ${req.method} ${req.path}`);
+    res.status(404).json({ message: 'Not Found' });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+    console.error('Unhandled Error:', err);
+    res.status(500).json({ 
+        message: 'Internal Server Error',
+        error: isProduction ? 'Something went wrong' : err.message
+    });
+});
 
 // =================================================================
 //                      KHỞI ĐỘNG SERVER
 // =================================================================
 app.listen(port, () => {
+    console.log(`=================================================================`);
     console.log(`Server đang chạy tại http://localhost:${port}`);
+    console.log(`Environment: ${isProduction ? 'Production' : 'Development'}`);
+    console.log(`Trust Proxy: ${isProduction ? 'Enabled' : 'Disabled'}`);
+    console.log(`Session Store: ${sessionStore ? 'SQL Server' : 'Memory (Not recommended for production)'}`);
+    console.log(`=================================================================`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('SIGTERM received, shutting down gracefully');
+    if (pool) {
+        pool.close();
+    }
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    console.log('SIGINT received, shutting down gracefully');
+    if (pool) {
+        pool.close();
+    }
+    process.exit(0);
 });

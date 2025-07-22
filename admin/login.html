@@ -1,34 +1,435 @@
 <!DOCTYPE html>
-<html>
+<html lang="vi">
 <head>
-    <title>Admin Login</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login - Real Estate Management</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .login-header {
+            margin-bottom: 30px;
+        }
+
+        .login-header h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .login-header p {
+            color: #666;
+            font-size: 16px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .login-button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+
+        .login-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .login-button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .message {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+
+        .error-message {
+            background-color: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+
+        .success-message {
+            background-color: #efe;
+            color: #363;
+            border: 1px solid #cfc;
+        }
+
+        .info-message {
+            background-color: #eef;
+            color: #336;
+            border: 1px solid #ccf;
+        }
+
+        .loading-spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ffffff;
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .debug-info {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            text-align: left;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #495057;
+        }
+
+        .debug-info h4 {
+            margin-bottom: 10px;
+            color: #333;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .footer-info {
+            margin-top: 30px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .footer-info h4 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .footer-info p {
+            margin: 5px 0;
+            color: #666;
+            font-size: 14px;
+        }
+
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 30px 20px;
+            }
+
+            .login-header h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
 </head>
 <body>
-    <h1>Admin Login</h1>
-    <form id="loginForm">
-        <input type="text" id="username" placeholder="Username" required><br>
-        <input type="password" id="password" placeholder="Password" required><br>
-        <button type="submit">Login</button>
-    </form>
-    <p id="error-message" style="color:red;"></p>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>Admin Login</h1>
+            <p>Hệ thống quản lý bất động sản</p>
+        </div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Tên đăng nhập:</label>
+                <input type="text" id="username" name="username" placeholder="Nhập tên đăng nhập" required autocomplete="username">
+            </div>
+
+            <div class="form-group">
+                <label for="password">Mật khẩu:</label>
+                <input type="password" id="password" name="password" placeholder="Nhập mật khẩu" required autocomplete="current-password">
+            </div>
+
+            <button type="submit" id="loginButton" class="login-button">
+                <span class="loading-spinner" id="loadingSpinner"></span>
+                <span id="buttonText">Đăng nhập</span>
+            </button>
+        </form>
+
+        <div id="messageContainer"></div>
+
+        <div class="footer-info">
+            <h4>Thông tin đăng nhập mặc định:</h4>
+            <p><strong>Username:</strong> admin</p>
+            <p><strong>Password:</strong> admin123</p>
+        </div>
+
+        <div id="debugInfo" class="debug-info" style="display: none;">
+            <h4>Debug Information:</h4>
+            <div id="debugContent"></div>
+        </div>
+    </div>
 
     <script>
+        // Global variables
+        let isDebugMode = false;
+        
+        // Check if we're in development mode
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            isDebugMode = true;
+            document.getElementById('debugInfo').style.display = 'block';
+        }
+
+        // Debug logging function
+        function debugLog(message, data = null) {
+            const timestamp = new Date().toISOString();
+            const logMessage = `[${timestamp}] ${message}`;
+            
+            console.log(logMessage, data || '');
+            
+            if (isDebugMode) {
+                const debugContent = document.getElementById('debugContent');
+                const logDiv = document.createElement('div');
+                logDiv.textContent = logMessage;
+                if (data) {
+                    logDiv.textContent += ' | Data: ' + JSON.stringify(data, null, 2);
+                }
+                debugContent.appendChild(logDiv);
+                debugContent.scrollTop = debugContent.scrollHeight;
+            }
+        }
+
+        // Message display function
+        function showMessage(message, type = 'info') {
+            const messageContainer = document.getElementById('messageContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}-message`;
+            messageDiv.textContent = message;
+            
+            // Clear previous messages
+            messageContainer.innerHTML = '';
+            messageContainer.appendChild(messageDiv);
+            
+            // Auto hide success/info messages after 5 seconds
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    if (messageDiv.parentNode) {
+                        messageDiv.remove();
+                    }
+                }, 5000);
+            }
+        }
+
+        // Loading state management
+        function setLoadingState(isLoading) {
+            const button = document.getElementById('loginButton');
+            const spinner = document.getElementById('loadingSpinner');
+            const buttonText = document.getElementById('buttonText');
+            const form = document.getElementById('loginForm');
+            
+            if (isLoading) {
+                button.disabled = true;
+                spinner.style.display = 'inline-block';
+                buttonText.textContent = 'Đang đăng nhập...';
+                form.style.opacity = '0.7';
+            } else {
+                button.disabled = false;
+                spinner.style.display = 'none';
+                buttonText.textContent = 'Đăng nhập';
+                form.style.opacity = '1';
+            }
+        }
+
+        // Check authentication status on page load
+        async function checkAuthStatus() {
+            try {
+                debugLog('Kiểm tra trạng thái đăng nhập...');
+                
+                const response = await fetch('/api/auth/status', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin'
+                });
+                
+                const data = await response.json();
+                debugLog('Auth status response', data);
+                
+                if (data.authenticated) {
+                    debugLog('User đã đăng nhập, chuyển hướng về dashboard');
+                    showMessage('Bạn đã đăng nhập. Đang chuyển hướng...', 'success');
+                    setTimeout(() => {
+                        window.location.href = '/admin/dashboard.html';
+                    }, 1000);
+                } else {
+                    debugLog('User chưa đăng nhập');
+                }
+            } catch (error) {
+                debugLog('Lỗi kiểm tra auth status', error);
+                console.error('Error checking auth status:', error);
+            }
+        }
+
+        // Handle form submission
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const username = document.getElementById('username').value;
+            
+            const username = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
             
-            const response = await fetch('/api/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
-
-            if (response.ok) {
-                window.location.href = '/admin/dashboard.html'; // Chuyển đến trang dashboard nếu thành công
-            } else {
-                document.getElementById('error-message').textContent = 'Sai tên đăng nhập hoặc mật khẩu!';
+            debugLog('Bắt đầu xử lý đăng nhập', { username: username });
+            
+            // Validation
+            if (!username || !password) {
+                showMessage('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu', 'error');
+                return;
             }
+            
+            // Set loading state
+            setLoadingState(true);
+            
+            try {
+                debugLog('Gửi request đăng nhập...');
+                
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'same-origin'
+                });
+                
+                debugLog('Response nhận được', {
+                    status: response.status,
+                    ok: response.ok,
+                    statusText: response.statusText
+                });
+                
+                let data;
+                try {
+                    data = await response.json();
+                    debugLog('Response data', data);
+                } catch (parseError) {
+                    debugLog('Lỗi parse JSON', parseError);
+                    throw new Error('Server trả về dữ liệu không hợp lệ');
+                }
+                
+                if (response.ok && data.success) {
+                    debugLog('Đăng nhập thành công!');
+                    showMessage('Đăng nhập thành công! Đang chuyển hướng...', 'success');
+                    
+                    // Clear form
+                    document.getElementById('username').value = '';
+                    document.getElementById('password').value = '';
+                    
+                    // Redirect after a short delay
+                    setTimeout(() => {
+                        const redirectUrl = data.redirectTo || '/admin/dashboard.html';
+                        debugLog('Chuyển hướng đến', redirectUrl);
+                        window.location.href = redirectUrl;
+                    }, 1500);
+                    
+                } else {
+                    debugLog('Đăng nhập thất bại', data);
+                    showMessage(data.message || 'Đăng nhập thất bại', 'error');
+                }
+                
+            } catch (error) {
+                debugLog('Exception trong quá trình đăng nhập', error);
+                console.error('Login error:', error);
+                showMessage('Lỗi kết nối đến server. Vui lòng thử lại!', 'error');
+            } finally {
+                setLoadingState(false);
+            }
+        });
+
+        // Auto-fill for testing (only in debug mode)
+        if (isDebugMode) {
+            setTimeout(() => {
+                document.getElementById('username').value = 'admin';
+                document.getElementById('password').value = 'admin123';
+                debugLog('Auto-filled login form for testing');
+            }, 1000);
+        }
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', () => {
+            debugLog('Trang login đã load');
+            checkAuthStatus();
+            
+            // Focus on username field
+            document.getElementById('username').focus();
+        });
+
+        // Handle Enter key on password field
+        document.getElementById('password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+            }
+        });
+
+        // Add some basic security measures
+        window.addEventListener('beforeunload', () => {
+            // Clear sensitive data
+            document.getElementById('password').value = '';
         });
     </script>
 </body>
